@@ -1,92 +1,58 @@
-'use client';
-
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { User, onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, setDoc, onSnapshot, Timestamp } from 'firebase/firestore';
-import { auth, db } from '../lib/firebase'; // Ensure this path matches your structure
-import { AppUserCustomData, UserRole } from '../types/user';
+"use client";
+import { createContext, useContext, useEffect, useState } from "react";
+import { onAuthStateChanged, User } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
 
 interface AuthContextType {
     user: User | null;
-    userData: AppUserCustomData | null;
+    userData: any | null; // Aquí guardamos el rol (superadmin, admin, etc)
     loading: boolean;
-    role: UserRole | null;
 }
 
-const AuthContext = createContext<AuthContextType>({
-    user: null,
-    userData: null,
-    loading: true,
-    role: null,
-});
+const AuthContext = createContext<AuthContextType>({ user: null, userData: null, loading: true });
 
-export const useAuthContext = () => useContext(AuthContext);
-
-export const AuthProvider = ({ children }: { children: ReactNode }) => {
+export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const [user, setUser] = useState<User | null>(null);
-    const [userData, setUserData] = useState<AppUserCustomData | null>(null);
+    const [userData, setUserData] = useState<any | null>(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-            if (!currentUser) {
-                setUser(null);
-                setUserData(null);
-                setLoading(false);
-                return;
-            }
-
             setUser(currentUser);
-            const userDocRef = doc(db, 'users', currentUser.uid);
 
-            try {
-                // FORCE READ from Firestore
-                const docSnap = await getDoc(userDocRef);
-
-                if (docSnap.exists()) {
-                    setUserData(docSnap.data() as AppUserCustomData);
-                } else {
-                    // Create user if not exists
-                    const newUserData: AppUserCustomData = {
-                        role: 'user', // Default role
-                        email: currentUser.email,
-                        displayName: currentUser.displayName,
-                        photoURL: currentUser.photoURL,
-                        createdAt: Timestamp.now(),
-                        updatedAt: Timestamp.now(),
-                    };
-
-                    try {
-                        await setDoc(userDocRef, newUserData);
-                        setUserData(newUserData);
-                    } catch (error) {
-                        console.error("Error creating user document:", error);
+            if (currentUser) {
+                // Forzamos la lectura del rol en la base de datos
+                try {
+                    const userDoc = await getDoc(doc(db, "users", currentUser.uid));
+                    if (userDoc.exists()) {
+                        const data = userDoc.data();
+                        console.log("Rol encontrado en DB:", data.role);
+                        setUserData(data);
+                    } else {
+                        // Si el documento no existe, reseteamos userData
+                        setUserData(null);
                     }
+                } catch (error) {
+                    console.error("Error leyendo rol:", error);
+                    setUserData(null);
                 }
-            } catch (error) {
-                console.error("Error fetching initial user data:", error);
+            } else {
+                setUserData(null);
             }
-
-            // Real-time listener for subsequent updates
-            const unsubscribeDoc = onSnapshot(userDocRef, (docSnapshot) => {
-                if (docSnapshot.exists()) {
-                    setUserData(docSnapshot.data() as AppUserCustomData);
-                }
-            }, (error) => {
-                 console.error("Error in user snapshot:", error);
-            });
 
             setLoading(false);
-            
-            return () => unsubscribeDoc();
         });
 
         return () => unsubscribe();
     }, []);
 
     return (
-        <AuthContext.Provider value={{ user, userData, loading, role: userData?.role || null }}>
+        <AuthContext.Provider value={{ user, userData, loading }}>
             {children}
         </AuthContext.Provider>
     );
 };
+
+// CAMBIO AQUÍ: Renombramos 'useAuth' a 'useAuthContext' para que coincida con lo que busca tu hook
+export const useAuthContext = () => useContext(AuthContext);
