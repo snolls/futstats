@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { X, Users, Loader2, Save, Trash2, Shield, ShieldCheck, UserPlus, Search } from "lucide-react";
-import { doc, updateDoc, getDocs, collection, query, where, arrayUnion, arrayRemove } from "firebase/firestore";
+import { doc, updateDoc, deleteDoc, getDocs, collection, query, where, arrayUnion, arrayRemove, limit } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuthContext } from "@/context/AuthContext";
 
@@ -97,18 +97,24 @@ export default function EditGroupModal({ isOpen, onClose, groupData, onUpdate }:
 
         setIsSearching(true);
         try {
-            // Simple search by display name (case sensitive usually in Firestore, requires better search for production)
-            // For MVP: We fetch loose matches or maybe just rely on exact? 
-            // Firestore simple search:
-            const q = query(
-                collection(db, "users"),
-                where("displayName", ">=", term),
-                where("displayName", "<=", term + '\uf8ff')
-            );
+            // MVP Fix for Search: Fetch recent/all users and filtering client-side for case-insensitivity
+            // Since Firestore does not support 'contains' or case-insensitive search easily without external services (Algolia/Typesense)
+            // We will fetch a batch of users and filter. 
+            // Warning: Not scalable for 10k+ users, but fine for <500
+
+            const q = query(collection(db, "users"), limit(100)); // Limit to prevent massive reads
             const snapshot = await getDocs(q);
+
+            const lowerTerm = term.toLowerCase();
             const results = snapshot.docs
                 .map(doc => ({ id: doc.id, ...doc.data() } as UserData))
-                .filter(u => !groupData?.members?.includes(u.id)); // Exclude existing members
+                .filter(u => {
+                    const nameMatch = u.displayName?.toLowerCase().includes(lowerTerm);
+                    const emailMatch = u.email?.toLowerCase().includes(lowerTerm);
+                    const isAlreadyMember = groupData?.members?.includes(u.id);
+                    return (nameMatch || emailMatch) && !isAlreadyMember;
+                });
+
             setSearchResults(results);
         } catch (err) {
             console.error("Error buscando usuarios:", err);
@@ -207,6 +213,42 @@ export default function EditGroupModal({ isOpen, onClose, groupData, onUpdate }:
             console.error("Error actualizando nombre:", err);
             setError("No se pudo actualizar el nombre.");
         } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleDeleteGroup = async () => {
+        if (!groupData) return;
+
+        // Security Check: Only Superadmin or Admin can delete (UI should hide button otherwise, but double check)
+        const isSuperAdmin = userData?.role === 'superadmin';
+        const isAdmin = groupData.adminIds.includes(user?.uid || '');
+
+        if (!isSuperAdmin && !isAdmin) {
+            setError("No tienes permisos para eliminar este grupo.");
+            return;
+        }
+
+        // Confirmation
+        if (!confirm("¿Estás SEGURO de que quieres eliminar este grupo? Esta acción borrará el grupo para todos los miembros.")) {
+            return;
+        }
+
+        // Double Confirmation
+        if (!confirm("Esta acción es IRREVERSIBLE. ¿Realmente quieres eliminarlo?")) {
+            return;
+        }
+
+        setIsLoading(true);
+        try {
+            await deleteDoc(doc(db, "groups", groupData.id));
+            // Optional: Delete matches associated? Or keep them orphaned? 
+            // For now, simple group deletion.
+            onUpdate();
+            onClose();
+        } catch (err) {
+            console.error("Error eliminando grupo:", err);
+            setError("Error al eliminar el grupo. Inténtalo de nuevo.");
             setIsLoading(false);
         }
     };
