@@ -27,6 +27,7 @@ export default function RootLayout({
     <html lang="en">
       {/* AÑADE suppressHydrationWarning AQUÍ ABAJO vvv */}
 
+
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
         suppressHydrationWarning={true}
