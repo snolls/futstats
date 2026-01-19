@@ -16,7 +16,7 @@ interface UserData {
 interface GroupData {
     id: string;
     name: string;
-    members?: string[]; // Array of User UIDs
+    members?: string[];
 }
 
 interface CreateMatchModalProps {
@@ -56,10 +56,8 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                 try {
                     let q;
                     if (userData.role === 'superadmin') {
-                        // Superadmin sees all groups
                         q = query(collection(db, "groups"));
                     } else {
-                        // Admin sees only their groups
                         q = query(collection(db, "groups"), where("adminIds", "array-contains", user.uid));
                     }
 
@@ -71,13 +69,12 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
 
                     setMyGroups(groups);
 
-                    // Auto-select if only one group
                     if (groups.length === 1) {
                         setSelectedGroupId(groups[0].id);
                     }
                 } catch (err) {
                     console.error("Error fetching groups:", err);
-                    setError("Failed to load your groups.");
+                    setError("Error al cargar tus grupos.");
                 } finally {
                     setIsFetchingGroups(false);
                 }
@@ -97,7 +94,7 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
         const fetchGroupMembers = async () => {
             setIsFetchingUsers(true);
             setError(null);
-            setSelectedUsers([]); // Reset selection when group changes
+            setSelectedUsers([]);
 
             try {
                 const group = myGroups.find(g => g.id === selectedGroupId);
@@ -105,16 +102,12 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
 
                 let membersToFetch = group.members || [];
 
-                // If no members in group, empty list
                 if (membersToFetch.length === 0) {
-                    console.warn("No members found in group:", group.name);
                     setAvailableUsers([]);
                     setIsFetchingUsers(false);
                     return;
                 }
 
-                // Firestore 'in' query supports max 30 items. 
-                // We'll chunk the requests if necessary.
                 const users: UserData[] = [];
                 const chunkSize = 10;
 
@@ -134,13 +127,8 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
 
                 setAvailableUsers(users);
 
-                // 3. Check Debts for these specific users
-                // Optimization: querying only debts for loaded users is ideal, but for MVP 
-                // we might just fetch pending debts and filter in memory if the dataset is small.
-                // Let's do a query for match_stats where paymentStatus == PENDING and userId IN chunk
                 const debts = new Set<string>();
 
-                // Similarly chunk debt checks
                 for (let i = 0; i < users.length; i += chunkSize) {
                     const userChunk = users.slice(i, i + chunkSize);
                     const ids = userChunk.map(u => u.id);
@@ -162,7 +150,7 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
 
             } catch (err) {
                 console.error("Error fetching group members:", err);
-                setError("Failed to load players for this group.");
+                setError("Error al cargar jugadores para este grupo.");
             } finally {
                 setIsFetchingUsers(false);
             }
@@ -192,7 +180,7 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
         try {
             const startDateTime = new Date(date);
 
-            // 1. Create Match Document
+            // 1. Create Match
             const matchRef = await addDoc(collection(db, "matches"), {
                 groupId: selectedGroupId,
                 format: format,
@@ -204,7 +192,7 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                 playerCount: selectedUsers.length,
             });
 
-            // 2. Create Match Stats for each player (Batch write)
+            // 2. Create Match Stats
             const batch = writeBatch(db);
 
             selectedUsers.forEach(userId => {
@@ -222,7 +210,6 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
 
             await batch.commit();
 
-            // Reset & Close
             setDate("");
             setPrice("");
             setSelectedUsers([]);
@@ -230,7 +217,7 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
 
         } catch (err) {
             console.error("Error creating match:", err);
-            setError("Failed to create match. Please try again.");
+            setError("Error al crear el partido. Inténtelo de nuevo.");
         } finally {
             setIsLoading(false);
         }
@@ -240,18 +227,16 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
-            {/* Backdrop */}
             <div
                 className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
                 onClick={onClose}
             />
 
-            {/* Modal Content */}
             <div className="relative w-full max-w-2xl bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl transform transition-all my-8 flex flex-col max-h-[90vh]">
                 <div className="flex items-center justify-between p-6 border-b border-gray-800 shrink-0">
                     <h3 className="text-xl font-semibold text-white flex items-center gap-2">
                         <Calendar className="w-5 h-5 text-green-500" />
-                        Schedule New Match
+                        Nuevo Partido
                     </h3>
                     <button onClick={onClose} className="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-gray-800">
                         <X className="w-5 h-5" />
@@ -266,12 +251,11 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                             </div>
                         )}
 
-                        {/* Group & Format Selection */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <label className="text-sm font-medium text-gray-300 flex items-center gap-2">
                                     <Shield className="w-4 h-4 text-blue-400" />
-                                    Select Group
+                                    Grupo
                                 </label>
                                 {isFetchingGroups ? (
                                     <div className="h-10 bg-gray-800 rounded animate-pulse" />
@@ -282,7 +266,7 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                                         className="w-full bg-gray-950 border border-gray-800 rounded-lg px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
                                         required
                                     >
-                                        <option value="" disabled>-- Select a Group --</option>
+                                        <option value="" disabled>-- Selecciona un Grupo --</option>
                                         {myGroups.map(group => (
                                             <option key={group.id} value={group.id}>{group.name}</option>
                                         ))}
@@ -293,7 +277,7 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                             <div className="space-y-2">
                                 <label className="text-sm font-medium text-gray-300 flex items-center gap-2">
                                     <Trophy className="w-4 h-4 text-yellow-500" />
-                                    Game Format
+                                    Formato
                                 </label>
                                 <select
                                     value={format}
@@ -307,10 +291,9 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                             </div>
                         </div>
 
-                        {/* Date & Price */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-gray-300">Date & Time</label>
+                                <label className="text-sm font-medium text-gray-300">Fecha y Hora</label>
                                 <input
                                     type="datetime-local"
                                     value={date}
@@ -321,7 +304,7 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                             </div>
 
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-gray-300">Price per Person</label>
+                                <label className="text-sm font-medium text-gray-300">Precio por Persona</label>
                                 <div className="relative">
                                     <DollarSign className="absolute left-3 top-2.5 w-5 h-5 text-gray-500" />
                                     <input
@@ -338,22 +321,21 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                             </div>
                         </div>
 
-                        {/* Player Selection */}
                         <div className="space-y-3">
                             <div className="flex items-center justify-between">
                                 <label className="text-sm font-medium text-gray-300 flex items-center gap-2">
                                     <Users className="w-4 h-4" />
-                                    Select Players {availableUsers.length > 0 && `(${availableUsers.length} available)`}
+                                    Seleccionar Jugadores {availableUsers.length > 0 && `(${availableUsers.length} disp.)`}
                                 </label>
                                 <span className="text-xs text-gray-500">
-                                    {selectedUsers.length} selected
+                                    {selectedUsers.length} seleccionados
                                 </span>
                             </div>
 
                             {!selectedGroupId ? (
                                 <div className="bg-gray-900/50 border border-gray-800 border-dashed rounded-lg p-8 flex flex-col items-center justify-center text-gray-500">
                                     <Shield className="w-8 h-8 mb-2 opacity-20" />
-                                    <p className="text-sm">Please select a group first</p>
+                                    <p className="text-sm">Selecciona un grupo primero</p>
                                 </div>
                             ) : isFetchingUsers ? (
                                 <div className="flex justify-center py-8">
@@ -361,7 +343,7 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                                 </div>
                             ) : availableUsers.length === 0 ? (
                                 <div className="bg-gray-900/50 border border-gray-800 border-dashed rounded-lg p-8 text-center text-gray-500 text-sm">
-                                    No players found in this group.
+                                    No se encontraron jugadores en este grupo.
                                 </div>
                             ) : (
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-60 overflow-y-auto p-1">
@@ -387,18 +369,18 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                                                     </div>
                                                     <div className="flex flex-col">
                                                         <span className={`text-sm font-medium ${isSelected ? 'text-green-400' : 'text-gray-300'}`}>
-                                                            {user.displayName || "Unknown User"}
+                                                            {user.displayName || "Usuario Desconocido"}
                                                         </span>
                                                         {hasDebt && (
                                                             <span className="text-[10px] text-red-400 flex items-center gap-1">
                                                                 <AlertTriangle className="w-3 h-3" />
-                                                                Payment Pending
+                                                                Pago Pendiente
                                                             </span>
                                                         )}
                                                     </div>
                                                 </div>
                                                 {hasDebt && (
-                                                    <div className="text-red-500" title="This user has pending payments">
+                                                    <div className="text-red-500" title="Usuario con pagos pendientes">
                                                         <AlertTriangle className="w-4 h-4" />
                                                     </div>
                                                 )}
@@ -416,7 +398,7 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                             onClick={onClose}
                             className="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
                         >
-                            Cancel
+                            Cancelar
                         </button>
                         <button
                             type="submit"
@@ -431,7 +413,7 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
               `}
                         >
                             {isLoading && <Loader2 className="w-4 h-4 animate-spin" />}
-                            {hasSelectedDebtors ? 'Confirm with Debts' : 'Confirm Match'}
+                            {hasSelectedDebtors ? 'Confirmar (con Deudas)' : 'Crear Partido'}
                         </button>
                     </div>
                 </form>
