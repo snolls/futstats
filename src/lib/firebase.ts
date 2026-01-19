@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+import { initializeFirestore, CACHE_SIZE_UNLIMITED } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
@@ -10,10 +10,17 @@ const firebaseConfig = {
   messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
-
-// Singleton pattern for Firebase app
+// Singleton para la App
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-const db = getFirestore(app);
+
+// Singleton para la Base de Datos con configuración "Anti-Bloqueo"
+// 1. experimentalForceLongPolling: Evita bloqueos de WebSockets por antivirus.
+// 2. ignoreUndefinedProperties: Evita errores tontos de datos.
+const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+  ignoreUndefinedProperties: true,
+});
+
 const auth = getAuth(app);
 
 export { app, db, auth };

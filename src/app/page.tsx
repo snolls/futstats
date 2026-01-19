@@ -9,7 +9,10 @@ import DashboardNav from '@/components/DashboardNav';
 import CreateGroupModal from '@/components/CreateGroupModal';
 import CreateMatchModal from '@/components/CreateMatchModal';
 import StatsTable from '@/components/StatsTable';
+import MatchCard from '@/components/MatchCard';
 import { Plus, Users } from 'lucide-react';
+import { collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
 
 export default function Home() {
   const { user, loading, role } = useAuth();
@@ -17,6 +20,41 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState('stats');
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
   const [isMatchModalOpen, setIsMatchModalOpen] = useState(false);
+  const [matches, setMatches] = useState<any[]>([]);
+  const [matchesLoading, setMatchesLoading] = useState(false);
+
+  // Fetch Matches
+  useEffect(() => {
+    const fetchMatches = () => {
+      if (!user) return;
+      setMatchesLoading(true);
+      try {
+        // Ideally filter by user participation or group
+        // For MVP, admins see all, players see... all? Or just theirs? 
+        // Prompt says "Mis Partidos". We'll fetch all future matches for now, 
+        // or matches where user is involved (requires complex query or denormalization).
+        // Let's fetch all 'SCHEDULED' matches for simplicity in this demo phase.
+        const q = query(collection(db, 'matches'), orderBy('date', 'desc'), limit(20));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+          const fetchedMatches = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          }));
+          setMatches(fetchedMatches);
+          setMatchesLoading(false);
+        });
+        return unsubscribe;
+      } catch (error) {
+        console.error("Error fetching matches", error);
+        setMatchesLoading(false);
+      }
+    };
+
+    if (user) {
+      const unsub = fetchMatches();
+      return () => { if (typeof unsub === 'function') unsub(); };
+    }
+  }, [user]);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -59,11 +97,28 @@ export default function Home() {
           )}
 
           {activeTab === 'matches' && (
-            <div className="bg-gray-900/50 backdrop-blur-md border border-gray-800 rounded-xl overflow-hidden shadow-lg p-6 flex flex-col items-center justify-center min-h-[300px]">
-              <div className="text-gray-500 text-center">
-                <h3 className="text-lg font-medium text-white mb-2">Mis Partidos</h3>
-                <p>No has jugado partidos recientes.</p>
-              </div>
+            <div className="space-y-4">
+              {matchesLoading ? (
+                <div className="text-center py-10 text-gray-500">Cargando partidos...</div>
+              ) : matches.length === 0 ? (
+                <div className="bg-gray-900/50 backdrop-blur-md border border-gray-800 rounded-xl overflow-hidden shadow-lg p-6 flex flex-col items-center justify-center min-h-[300px]">
+                  <div className="text-gray-500 text-center">
+                    <h3 className="text-lg font-medium text-white mb-2">No tienes partidos próximos</h3>
+                    <p>Cuando te anotes a un partido aparecerá aquí.</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {matches.map(match => (
+                    <MatchCard
+                      key={match.id}
+                      match={match}
+                      isAdmin={role === 'admin' || role === 'superadmin'}
+                      onViewDetails={(id) => alert(`Detalles del partido ${id} (Pendiente de Implementar)`)}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           )}
 

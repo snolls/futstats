@@ -21,6 +21,8 @@ interface UserOption {
 export default function CreateGroupModal({ isOpen, onClose }: CreateGroupModalProps) {
     const { user } = useAuth();
     const [groupName, setGroupName] = useState('');
+    const [typicalDay, setTypicalDay] = useState('');
+    const [defaultPrice, setDefaultPrice] = useState('');
     const [adminSearch, setAdminSearch] = useState('');
     const [searchResults, setSearchResults] = useState<UserOption[]>([]);
     const [selectedAdmins, setSelectedAdmins] = useState<UserOption[]>([]);
@@ -83,6 +85,14 @@ export default function CreateGroupModal({ isOpen, onClose }: CreateGroupModalPr
             setError("El nombre del grupo es obligatorio");
             return;
         }
+        if (!typicalDay) {
+            setError("El día habitual es obligatorio");
+            return;
+        }
+        if (!defaultPrice) {
+            setError("El precio por defecto es obligatorio");
+            return;
+        }
         if (selectedAdmins.length === 0) {
             setError("Selecciona al menos un administrador");
             return;
@@ -95,12 +105,16 @@ export default function CreateGroupModal({ isOpen, onClose }: CreateGroupModalPr
         try {
             await addDoc(collection(db, 'groups'), {
                 name: groupName,
+                typicalDay,
+                defaultPrice: parseFloat(defaultPrice),
                 adminIds: selectedAdmins.map(u => u.uid),
                 createdBy: user?.uid,
                 createdAt: Timestamp.now()
             });
             setSuccess('Grupo creado exitosamente');
             setGroupName('');
+            setTypicalDay('');
+            setDefaultPrice('');
             setSelectedAdmins([]);
             setTimeout(() => {
                 onClose();
@@ -138,6 +152,30 @@ export default function CreateGroupModal({ isOpen, onClose }: CreateGroupModalPr
                             className="w-full bg-gray-950 border border-gray-800 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-green-500 transition-colors"
                             placeholder="Ej: Liga de los Jueves"
                         />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-sm font-medium text-gray-400 mb-1">Día Habitual</label>
+                            <input
+                                type="text"
+                                value={typicalDay}
+                                onChange={(e) => setTypicalDay(e.target.value)}
+                                className="w-full bg-gray-950 border border-gray-800 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-green-500 transition-colors"
+                                placeholder="Ej: Viernes"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-sm font-medium text-gray-400 mb-1">Precio (€)</label>
+                            <input
+                                type="number"
+                                step="0.5"
+                                value={defaultPrice}
+                                onChange={(e) => setDefaultPrice(e.target.value)}
+                                className="w-full bg-gray-950 border border-gray-800 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-green-500 transition-colors"
+                                placeholder="Ej: 5.0"
+                            />
+                        </div>
                     </div>
 
                     <div>
