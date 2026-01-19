@@ -31,20 +31,28 @@ export default function UsersTable() {
                 let fetchAll = false;
 
                 if (userData?.role === 'superadmin') {
+                    console.log("UsersTable: Role is Superadmin. Fetching ALL users.");
                     fetchAll = true;
                 } else {
+                    console.log("UsersTable: Role is", userData?.role, "Fetching Admin groups.");
                     // Fetch my admin groups
                     const groupsQ = query(collection(db, "groups"), where("adminIds", "array-contains", user.uid));
                     const groupsSnap = await getDocs(groupsQ);
+                    console.log("UsersTable: Found groups managed:", groupsSnap.size);
 
                     const memberSet = new Set<string>();
                     groupsSnap.forEach(doc => {
-                        const members = doc.data().members || [];
+                        const data = doc.data();
+                        // Fallback: If 'members' doesn't exist (legacy groups), use 'adminIds'
+                        const members = data.members || data.adminIds || [];
                         members.forEach((m: string) => memberSet.add(m));
                     });
 
                     usersToFetch = Array.from(memberSet);
+                    console.log("UsersTable: Unique members found:", usersToFetch.length, usersToFetch);
+
                     if (usersToFetch.length === 0) {
+                        console.warn("UsersTable: No members found in managed groups.");
                         setUsers([]);
                         setLoading(false);
                         return;
@@ -56,21 +64,27 @@ export default function UsersTable() {
                 if (fetchAll) {
                     const q = query(collection(db, "users")); // Might need limit for scale
                     const snap = await getDocs(q);
+                    console.log("UsersTable: FetchAll query found docs:", snap.size);
                     userDocs = snap.docs.map(d => ({ id: d.id, ...d.data(), pendingDebtMatches: 0, totalDebt: 0 } as UserRow));
                 } else {
                     // Chunk fetch
+                    console.log("UsersTable: Fetching users by chunk. Count:", usersToFetch.length);
                     const chunkSize = 10;
                     for (let i = 0; i < usersToFetch.length; i += chunkSize) {
                         const chunk = usersToFetch.slice(i, i + chunkSize);
                         if (chunk.length > 0) {
+                            console.log("UsersTable: Querying chunk", chunk);
                             const q = query(collection(db, "users"), where(documentId(), "in", chunk));
                             const snap = await getDocs(q);
+                            console.log("UsersTable: Chunk result count:", snap.size);
                             snap.forEach(d => {
                                 userDocs.push({ id: d.id, ...d.data(), pendingDebtMatches: 0, totalDebt: 0 } as UserRow);
                             });
                         }
                     }
                 }
+
+                console.log("UsersTable: Total users loaded in memory:", userDocs.length);
 
                 // 3. Fetch Pending Debts (for these users)
                 // Filter: paymentStatus == 'PENDING'
