@@ -37,13 +37,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             }
 
             setUser(currentUser);
-
             const userDocRef = doc(db, 'users', currentUser.uid);
 
-            // Subscribe to user document changes logic
-            const unsubscribeDoc = onSnapshot(userDocRef, async (docSnapshot) => {
-                if (docSnapshot.exists()) {
-                    setUserData(docSnapshot.data() as AppUserCustomData);
+            try {
+                // FORCE READ from Firestore
+                const docSnap = await getDoc(userDocRef);
+
+                if (docSnap.exists()) {
+                    setUserData(docSnap.data() as AppUserCustomData);
                 } else {
                     // Create user if not exists
                     const newUserData: AppUserCustomData = {
@@ -62,12 +63,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                         console.error("Error creating user document:", error);
                     }
                 }
-                setLoading(false);
+            } catch (error) {
+                console.error("Error fetching initial user data:", error);
+            }
+
+            // Real-time listener for subsequent updates
+            const unsubscribeDoc = onSnapshot(userDocRef, (docSnapshot) => {
+                if (docSnapshot.exists()) {
+                    setUserData(docSnapshot.data() as AppUserCustomData);
+                }
             }, (error) => {
-                console.error("Error fetching user data:", error);
-                setLoading(false);
+                 console.error("Error in user snapshot:", error);
             });
 
+            setLoading(false);
+            
             return () => unsubscribeDoc();
         });
 

@@ -22,7 +22,10 @@ export default function Home() {
     if (!loading && !user) {
       router.push('/login');
     }
-  }, [user, loading, router]);
+    if (user && role) {
+      console.log("Rol actual detectado:", role);
+    }
+  }, [user, loading, role, router]);
 
   if (loading || !user) {
     return (
