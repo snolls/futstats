@@ -12,7 +12,7 @@ import EditGroupModal from '@/components/EditGroupModal';
 import UsersTable from '@/components/UsersTable';
 import StatsTable from '@/components/StatsTable';
 import MatchCard from '@/components/MatchCard';
-import { Plus, Users, Settings, Shield } from 'lucide-react';
+import { Plus, Users, Settings, Shield, Contact } from 'lucide-react';
 import { collection, query, orderBy, limit, onSnapshot, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
@@ -238,18 +238,33 @@ export default function Home() {
                   )}
 
                   {(role === 'admin' || role === 'superadmin') && (
-                    <button
-                      onClick={() => setIsMatchModalOpen(true)}
-                      className="flex items-center justify-center gap-3 p-6 bg-gray-800 hover:bg-gray-700/50 border border-gray-700 rounded-xl transition-all group"
-                    >
-                      <div className="p-3 bg-green-500/20 rounded-full text-green-400 group-hover:scale-110 transition-transform">
-                        <Plus className="w-6 h-6" />
-                      </div>
-                      <div className="text-left">
-                        <h3 className="text-lg font-semibold text-white">Nuevo Partido</h3>
-                        <p className="text-sm text-gray-400">Programar encuentro</p>
-                      </div>
-                    </button>
+                    <>
+                      <button
+                        onClick={() => setIsMatchModalOpen(true)}
+                        className="flex items-center justify-center gap-3 p-6 bg-gray-800 hover:bg-gray-700/50 border border-gray-700 rounded-xl transition-all group"
+                      >
+                        <div className="p-3 bg-green-500/20 rounded-full text-green-400 group-hover:scale-110 transition-transform">
+                          <Plus className="w-6 h-6" />
+                        </div>
+                        <div className="text-left">
+                          <h3 className="text-lg font-semibold text-white">Nuevo Partido</h3>
+                          <p className="text-sm text-gray-400">Programar encuentro</p>
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={() => router.push('/users')}
+                        className="flex items-center justify-center gap-3 p-6 bg-gray-800 hover:bg-gray-700/50 border border-gray-700 rounded-xl transition-all group"
+                      >
+                        <div className="p-3 bg-indigo-500/20 rounded-full text-indigo-400 group-hover:scale-110 transition-transform">
+                          <Contact className="w-6 h-6" />
+                        </div>
+                        <div className="text-left">
+                          <h3 className="text-lg font-semibold text-white">Directorio</h3>
+                          <p className="text-sm text-gray-400">Ver listado de jugadores</p>
+                        </div>
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
