@@ -24,19 +24,26 @@ interface GroupData {
   createdAt?: any;
 }
 
+// ----------------------------------------------------------------------
+// PÁGINA PRINCIPAL (DASHBOARD)
+// Esta es la vista central de la aplicación.
+// Muestra estadísticas, partidos y paneles de gestión según el rol.
+// ----------------------------------------------------------------------
 export default function Home() {
   const { user, loading, userData } = useAuthContext();
   const role = userData?.role;
   const router = useRouter();
 
+  // --- SECCIÓN DE ESTADOS (STATE) ---
+  // Control de la pestaña activa en el dashboard (stats, matches, users, overview)
   const [activeTab, setActiveTab] = useState('stats');
 
-  // Modals
+  // Estados para controlar la visibilidad de los Modales (ventanas emergentes)
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
   const [isMatchModalOpen, setIsMatchModalOpen] = useState(false);
   const [isEditGroupModalOpen, setIsEditGroupModalOpen] = useState(false);
 
-  // Data
+  // Estados de DATOS (Partidos y Grupos)
   const [matches, setMatches] = useState<any[]>([]);
   const [matchesLoading, setMatchesLoading] = useState(false);
 
@@ -44,14 +51,17 @@ export default function Home() {
   const [groupsLoading, setGroupsLoading] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<GroupData | null>(null);
 
-  // Auth Redirection
+  // --- EFECTOS (USEEFFECT) ---
+
+  // 1. Protección de Ruta: Si no hay usuario, redirigir al login
   useEffect(() => {
     if (!loading && !user) {
       router.push('/login');
     }
   }, [user, loading, router]);
 
-  // Fetch Matches
+  // 2. Carga de Partidos: Se ejecuta cuando hay un usuario logueado
+  // Se suscribe a cambios en tiempo real (onSnapshot)
   useEffect(() => {
     const fetchMatches = () => {
       if (!user) return;
@@ -77,9 +87,11 @@ export default function Home() {
       const unsub = fetchMatches();
       return () => { if (typeof unsub === 'function') unsub(); };
     }
+
+
   }, [user]);
 
-  // Fetch Managed Groups
+  // 3. Carga de Grupos Gestionados: Solo para Admins/Superadmins en la pestaña 'overview'
   useEffect(() => {
     const fetchGroups = () => {
       if (!user || !role || activeTab !== 'overview') return;
@@ -145,6 +157,7 @@ export default function Home() {
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[500px] h-[500px] bg-green-500/5 rounded-full blur-[120px] pointer-events-none" />
 
         <div className="relative z-10 max-w-7xl mx-auto space-y-6">
+          {/* --- ENCABEZADO: Bienvenida --- */}
           <div className="items-center text-center sm:text-left">
             <h1 className="text-2xl md:text-4xl font-bold">
               Bienvenido, <span className="bg-gradient-to-r from-green-400 to-blue-500 bg-clip-text text-transparent">{user.displayName}</span>
@@ -153,14 +166,19 @@ export default function Home() {
           </div>
 
           <div className="w-full">
+            {/* Navegación por Pestañas (Componente hijo) */}
             <DashboardNav activeTab={activeTab} onTabChange={setActiveTab} />
           </div>
 
 
+          {/* --- RENDERIZADO CONDICIONAL DE CONTENIDO --- */}
+
+          {/* 1. Vista de ESTADÍSTICAS */}
           {activeTab === 'stats' && (
             <StatsTable />
           )}
 
+          {/* 2. Vista de PARTIDOS (Próximos encuentros) */}
           {activeTab === 'matches' && (
             <div className="space-y-4">
               {matchesLoading ? (
@@ -187,10 +205,12 @@ export default function Home() {
             </div>
           )}
 
+          {/* 3. Vista de DIRECTORIO DE USUARIOS (Solo Admins) */}
           {activeTab === 'users' && (
             <UserDirectory currentUser={{ ...user, role: role || 'user' }} />
           )}
 
+          {/* 4. Vista de GESTIÓN (Panel de Admin/Overview) */}
           {activeTab === 'overview' && (
             <div className="space-y-8">
               {/* Admin Actions */}
@@ -292,6 +312,8 @@ export default function Home() {
             </div>
           )}
 
+          {/* --- MODALES O VENTANAS EMERGENTES --- */}
+          {/* Se renderizan ocultos hasta que su estado 'isOpen' sea true */}
           <CreateGroupModal isOpen={isGroupModalOpen} onClose={() => setIsGroupModalOpen(false)} />
           <CreateMatchModal isOpen={isMatchModalOpen} onClose={() => setIsMatchModalOpen(false)} />
           <EditGroupModal

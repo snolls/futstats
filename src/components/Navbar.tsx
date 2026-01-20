@@ -1,15 +1,25 @@
 'use client';
 
+// ----------------------------------------------------------------------
+// COMPONENTE NAVBAR
+// Esta barra se mantiene fija o visible en todas las páginas.
+// Gestiona la identidad del usuario y la navegación principal.
+// ----------------------------------------------------------------------
+
 import Link from 'next/link';
 import Image from 'next/image';
+// Hook personalizado para detectar el estado de autenticación (si el usuario está logueado)
 import { useAuth } from '@/hooks/useAuth';
+// Librerías externas: Iconos y Hooks de React
 import { LogOut, User as UserIcon } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
+// Firebase Authentication
 import { signOut } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
 
 export default function Navbar() {
+    // Detectamos si hay un usuario conectado
     const { user } = useAuth();
     const [dropdownOpen, setDropdownOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
@@ -35,10 +45,12 @@ export default function Navbar() {
     }, []);
 
     return (
+        // Contenedor Principal: Fijo en la parte superior (sticky top-0) con efecto desenfoque
         <nav className="sticky top-0 z-50 w-full bg-gray-900/60 backdrop-blur-md border-b border-gray-800">
             <div className="max-w-7xl mx-auto px-4 py-3 md:px-8 flex flex-row items-center justify-between">
                 <div className="flex-shrink-0 flex items-center">
                     <Link href="/" className="hover:opacity-80 transition-opacity">
+                        {/* Logo de la Marca: Usamos width='auto' en style para evitar warnings de aspecto en Next.js */}
                         <Image
                             src="/brand-logo.png"
                             alt="FutStats"
@@ -52,6 +64,7 @@ export default function Navbar() {
                 </div>
 
                 <div className="flex items-center gap-3">
+                    {/* Renderizado Condicional: Si 'user' existe, mostramos el menú de perfil; si no, nada (o botón de login si quisieras) */}
                     {user && (
                         <div className="relative" ref={dropdownRef}>
                             <button
