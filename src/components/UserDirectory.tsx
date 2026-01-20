@@ -498,7 +498,6 @@ export default function UserDirectory({ currentUser }: UserDirectoryProps) {
                             onDelete={handleDeleteUser}
                             onRoleUpdate={handleUpdateRole}
                             onOpenDetail={() => openUserDetail(u)}
-                            onOpenDetail={() => openUserDetail(u)}
                             onEdit={handleEditGuest}
                             onReviewRequest={handleReviewRequest}
                         />
