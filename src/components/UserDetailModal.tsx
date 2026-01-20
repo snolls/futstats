@@ -1,9 +1,11 @@
 'use client';
 
-import { useState } from 'react';
-import { X, Calendar, Wallet, CheckCircle2, AlertTriangle, Plus, Minus, Loader2, History, RotateCcw } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { X, Calendar, Wallet, CheckCircle2, AlertTriangle, Plus, Minus, Loader2, History, RotateCcw, Pencil, Save } from 'lucide-react';
 import { usePlayerDebts } from '@/hooks/usePlayerDebts';
 import { AppUserCustomData } from '@/types/user';
+import { db } from '@/lib/firebase';
+import { doc, updateDoc } from 'firebase/firestore';
 
 interface UserDetailModalProps {
     isOpen: boolean;
@@ -28,6 +30,9 @@ export default function UserDetailModal({ isOpen, onClose, user, onUpdate }: Use
     const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending');
     const [processingId, setProcessingId] = useState<string | null>(null);
     const [manualDebtInput, setManualDebtInput] = useState("");
+    const [isEditingName, setIsEditingName] = useState(false);
+    const [editNameValue, setEditNameValue] = useState("");
+    const [isSavingName, setIsSavingName] = useState(false);
 
     // Estado para el diálogo de confirmación de pago inteligente
     const [showPaymentConfirm, setShowPaymentConfirm] = useState(false);
@@ -42,6 +47,29 @@ export default function UserDetailModal({ isOpen, onClose, user, onUpdate }: Use
             console.error("Error toggling payment:", error);
         } finally {
             setProcessingId(null);
+        }
+    };
+
+    const startEditingName = () => {
+        setEditNameValue(user.displayName || "");
+        setIsEditingName(true);
+    };
+
+    const saveName = async () => {
+        if (!editNameValue.trim() || editNameValue === user.displayName) {
+            setIsEditingName(false);
+            return;
+        }
+        setIsSavingName(true);
+        try {
+            const userRef = doc(db, "users", user.id);
+            await updateDoc(userRef, { displayName: editNameValue.trim() });
+            onUpdate(); // Refresh parent
+            setIsEditingName(false);
+        } catch (error) {
+            console.error("Error updating name:", error);
+        } finally {
+            setIsSavingName(false);
         }
     };
 
@@ -211,8 +239,36 @@ export default function UserDetailModal({ isOpen, onClose, user, onUpdate }: Use
                             )}
                         </div>
                         <div>
-                            <h3 className="text-lg font-bold text-white">{user.displayName}</h3>
-                            <p className="text-xs text-slate-400">{user.email}</p>
+                            {isEditingName ? (
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        value={editNameValue}
+                                        onChange={(e) => setEditNameValue(e.target.value)}
+                                        className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:border-blue-500 outline-none w-40"
+                                        autoFocus
+                                    />
+                                    <button onClick={saveName} disabled={isSavingName} className="text-emerald-500 hover:text-emerald-400">
+                                        {isSavingName ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                                    </button>
+                                </div>
+                            ) : (
+                                <h3 className="text-lg font-bold text-white flex items-center gap-2 group">
+                                    {user.displayName}
+                                    <button onClick={startEditingName} className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-500 hover:text-blue-400">
+                                        <Pencil className="w-3 h-3" />
+                                    </button>
+                                </h3>
+                            )}
+
+                            <div className="flex items-center gap-2">
+                                {!user.isGuest && user.role !== 'guest' ? (
+                                    <p className="text-xs text-slate-400">{user.email}</p>
+                                ) : (
+                                    <span className="text-[10px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-1.5 py-0.5 rounded uppercase tracking-wider font-bold">
+                                        Invitado
+                                    </span>
+                                )}
+                            </div>
                         </div>
                     </div>
                     <button onClick={onClose} className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800">

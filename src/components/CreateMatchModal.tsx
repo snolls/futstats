@@ -5,6 +5,7 @@ import { X, Calendar, Euro, Users, AlertTriangle, Loader2, Trophy, Shield, UserP
 import { addDoc, collection, serverTimestamp, getDocs, query, where, writeBatch, doc, documentId, increment } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuthContext } from "@/context/AuthContext";
+import { createGuestUser } from "@/lib/users";
 
 interface UserData {
     id: string;
@@ -13,6 +14,7 @@ interface UserData {
     photoURL?: string;
     debt?: number;
     manualDebt?: number;
+    role?: string;
 }
 
 interface GroupData {
@@ -54,8 +56,10 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
     const [date, setDate] = useState("");
     const [price, setPrice] = useState("");
     const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
-    const [guests, setGuests] = useState<GuestUser[]>([]);
+    const [guests, setGuests] = useState<GuestUser[]>([]); // Deprecated/Legacy ad-hoc guests if needed, but we focus on User-Guests now
     const [guestNameInput, setGuestNameInput] = useState("");
+    const [isCreatingGuest, setIsCreatingGuest] = useState(false);
+    const [showGuestInput, setShowGuestInput] = useState(false);
 
     // Data State
     const [myGroups, setMyGroups] = useState<GroupData[]>([]);
@@ -191,15 +195,42 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
         );
     };
 
-    const addGuest = () => {
+    const handleQuickGuest = async () => {
         if (!guestNameInput.trim()) return;
-        const newGuest: GuestUser = {
-            id: `guest_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-            displayName: guestNameInput.trim(),
-            isGuest: true
-        };
-        setGuests(prev => [...prev, newGuest]);
-        setGuestNameInput("");
+
+        setIsCreatingGuest(true);
+        try {
+            const name = guestNameInput.trim();
+            // 1. Create in Firestore via Utility
+            const newGuestData = await createGuestUser(name);
+
+            // 2. Add to Local State
+            const newGuestUser: UserData = {
+                id: newGuestData.id,
+                displayName: newGuestData.displayName || name,
+                email: newGuestData.email || "",
+                photoURL: newGuestData.photoURL || undefined,
+                debt: 0,
+                manualDebt: 0,
+                role: 'guest'
+            };
+
+            setAvailableUsers(prev => [newGuestUser, ...prev]);
+
+            // 3. Auto-Select
+            setSelectedUserIds(prev => [...prev, newGuestUser.id]);
+
+            // 4. Reset & Feedback
+            setGuestNameInput("");
+            console.log("Guest created and selected:", name);
+
+        } catch (error) {
+            console.error("Error creating quick guest:", error);
+            setError("Error al crear al invitado.");
+        } finally {
+            setIsCreatingGuest(false);
+            setShowGuestInput(false); // Hide input after creation
+        }
     };
 
     const removeGuest = (guestId: string) => {
@@ -288,7 +319,7 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                 console.log(`✅ Se ha cobrado automáticamente a ${autoPaidCount} jugadores usando su saldo a favor.`);
             }
 
-            // Guests
+            // Guests (Legacy ad-hoc support, usually empty now)
             guests.forEach(guest => {
                 const statsRef = doc(collection(db, "match_stats"));
                 batch.set(statsRef, {
@@ -429,27 +460,50 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                                 </span>
                             </div>
 
-                            {/* Guest Input */}
-                            <div className="flex gap-2 mb-2">
-                                <div className="relative flex-1">
-                                    <UserPlus className="absolute left-3 top-2.5 w-4 h-4 text-gray-500" />
-                                    <input
-                                        type="text"
-                                        placeholder="Nombre Invitado..."
-                                        className="w-full bg-gray-900 border border-gray-800 rounded-lg pl-9 pr-3 py-2 text-sm text-white focus:border-green-500 outline-none"
-                                        value={guestNameInput}
-                                        onChange={e => setGuestNameInput(e.target.value)}
-                                        onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addGuest())}
-                                    />
-                                </div>
+                            {!showGuestInput ? (
                                 <button
                                     type="button"
-                                    onClick={addGuest}
-                                    className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white text-sm font-medium rounded-lg"
+                                    onClick={() => setShowGuestInput(true)}
+                                    className="w-full py-2 bg-gray-950 border border-gray-800 border-dashed rounded-lg text-gray-400 hover:text-white hover:border-gray-600 transition-colors flex items-center justify-center gap-2 text-sm"
                                 >
-                                    Añadir
+                                    <UserPlus className="w-4 h-4" />
+                                    Nuevo Invitado
                                 </button>
-                            </div>
+                            ) : (
+                                <div className="flex gap-2 mb-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                                    <div className="relative flex-1">
+                                        <UserPlus className="absolute left-3 top-2.5 w-4 h-4 text-gray-500" />
+                                        <input
+                                            type="text"
+                                            placeholder="Nombre Invitado..."
+                                            className="w-full bg-gray-900 border border-gray-800 rounded-lg pl-9 pr-3 py-2 text-sm text-white focus:border-green-500 outline-none"
+                                            value={guestNameInput}
+                                            onChange={e => setGuestNameInput(e.target.value)}
+                                            onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleQuickGuest())}
+                                            disabled={isCreatingGuest}
+                                            autoFocus
+                                        />
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={handleQuickGuest}
+                                        disabled={!guestNameInput.trim() || isCreatingGuest}
+                                        className="px-4 py-2 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold rounded-lg transition-colors flex items-center gap-2"
+                                    >
+                                        {isCreatingGuest ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+                                        <span className="hidden sm:inline">Crear</span>
+                                        <span className="sm:hidden">Crear</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowGuestInput(false)}
+                                        className="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-400 rounded-lg"
+                                        disabled={isCreatingGuest}
+                                    >
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                </div>
+                            )}
 
                             {!selectedGroupId ? (
                                 <div className="bg-gray-900/50 border border-gray-800 border-dashed rounded-lg p-8 flex flex-col items-center justify-center text-gray-500">
@@ -499,6 +553,7 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                                     {availableUsers.map(user => {
                                         const isSelected = selectedUserIds.includes(user.id);
                                         const hasDebt = usersWithDebt.has(user.id);
+                                        const isGuestUser = user.role === 'guest' || user.id.startsWith('guest_');
 
                                         return (
                                             <div
@@ -519,6 +574,7 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                                                     <div className="flex flex-col">
                                                         <span className={`text-sm font-medium ${isSelected ? 'text-green-400' : 'text-gray-300'}`}>
                                                             {user.displayName || "Usuario Desconocido"}
+                                                            {isGuestUser && <span className="ml-2 text-[10px] bg-amber-500/20 text-amber-500 px-1.5 py-0.5 rounded border border-amber-500/30">INVITADO</span>}
                                                         </span>
                                                         {hasDebt && (
                                                             <span className="text-[10px] text-red-400 flex items-center gap-1">

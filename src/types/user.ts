@@ -2,7 +2,7 @@
 import { User } from 'firebase/auth';
 import { Timestamp } from 'firebase/firestore';
 
-export type UserRole = 'superadmin' | 'admin' | 'user';
+export type UserRole = 'superadmin' | 'admin' | 'user' | 'guest';
 
 export interface AppUserCustomData {
   role: UserRole;
@@ -12,6 +12,7 @@ export interface AppUserCustomData {
   photoURL?: string | null;
   email?: string | null;
   manualDebt?: number;
+  isGuest?: boolean;
 }
 
 export interface AppUser extends User {

@@ -1,4 +1,4 @@
-import { Shield, ShieldCheck, User as UserIcon, Trash2, Banknote, AlertTriangle } from 'lucide-react';
+import { Shield, ShieldCheck, User as UserIcon, Trash2, Banknote, AlertTriangle, Pencil } from 'lucide-react';
 import clsx from 'clsx';
 
 // Definición de tipos para las props
@@ -25,13 +25,14 @@ interface UserCardProps {
     onDelete: (userId: string) => void;
     onRoleUpdate: (userId: string, newRole: 'admin' | 'user' | 'superadmin') => void;
     onOpenDetail: () => void;
+    onEdit?: (user: UserData) => void; // Nueva prop opcional
 }
 
 /**
  * Componente auxiliar para los botones de acción (Editar, Borrar, Promover, etc.)
  * Se exporta para poder ser reutilizado en la vista de lista (UserRow) si es necesario.
  */
-export function UserActions({ user, currentUser, onDelete, onRoleUpdate, onOpenDetail }: UserCardProps) {
+export function UserActions({ user, currentUser, onDelete, onRoleUpdate, onOpenDetail, onEdit }: UserCardProps) {
     const isSelf = user.id === currentUser.uid;
     const isSuperAdmin = currentUser.role === 'superadmin';
     const isAdmin = currentUser.role === 'admin';
@@ -59,39 +60,42 @@ export function UserActions({ user, currentUser, onDelete, onRoleUpdate, onOpenD
 
             {!isSelf && (
                 <>
-                    <div className="w-px h-4 bg-gray-800 mx-1"></div>
+                    {/* Role Actions - Hide for Guests */}
+                    {(user.role !== 'guest' && !user.id.startsWith('guest_')) && (
+                        <>
+                            {/* Botón Promover a SuperAdmin */}
+                            {canPromoteToSuper && user.role !== 'superadmin' && (
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); onRoleUpdate(user.id, 'superadmin'); }}
+                                    title="Promover a Superadmin"
+                                    className="p-1.5 bg-purple-900/20 text-purple-400 hover:bg-purple-900/40 rounded border border-purple-900/30 transition-colors"
+                                >
+                                    <ShieldCheck className="w-3.5 h-3.5" />
+                                </button>
+                            )}
 
-                    {/* Botón Promover a SuperAdmin */}
-                    {canPromoteToSuper && user.role !== 'superadmin' && (
-                        <button
-                            onClick={(e) => { e.stopPropagation(); onRoleUpdate(user.id, 'superadmin'); }}
-                            title="Promover a Superadmin"
-                            className="p-1.5 bg-purple-900/20 text-purple-400 hover:bg-purple-900/40 rounded border border-purple-900/30 transition-colors"
-                        >
-                            <ShieldCheck className="w-3.5 h-3.5" />
-                        </button>
-                    )}
+                            {/* Botón Promover a Admin */}
+                            {canPromoteToAdmin && user.role !== 'admin' && user.role !== 'superadmin' && (
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); onRoleUpdate(user.id, 'admin'); }}
+                                    title="Promover a Administrador"
+                                    className="p-1.5 bg-blue-900/20 text-blue-400 hover:bg-blue-900/40 rounded border border-blue-900/30 transition-colors"
+                                >
+                                    <Shield className="w-3.5 h-3.5" />
+                                </button>
+                            )}
 
-                    {/* Botón Promover a Admin */}
-                    {canPromoteToAdmin && user.role !== 'admin' && user.role !== 'superadmin' && (
-                        <button
-                            onClick={(e) => { e.stopPropagation(); onRoleUpdate(user.id, 'admin'); }}
-                            title="Promover a Administrador"
-                            className="p-1.5 bg-blue-900/20 text-blue-400 hover:bg-blue-900/40 rounded border border-blue-900/30 transition-colors"
-                        >
-                            <Shield className="w-3.5 h-3.5" />
-                        </button>
-                    )}
-
-                    {/* Botón Degradar a Usuario */}
-                    {canDemoteToUser && user.role !== 'user' && (user.role !== 'superadmin' || isSuperAdmin) && (
-                        <button
-                            onClick={(e) => { e.stopPropagation(); onRoleUpdate(user.id, 'user'); }}
-                            title="Degradar a Jugador"
-                            className="p-1.5 bg-gray-800 text-gray-400 hover:bg-gray-700 rounded border border-gray-700 transition-colors"
-                        >
-                            <UserIcon className="w-3.5 h-3.5" />
-                        </button>
+                            {/* Botón Degradar a Usuario */}
+                            {canDemoteToUser && user.role !== 'user' && (user.role !== 'superadmin' || isSuperAdmin) && (
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); onRoleUpdate(user.id, 'user'); }}
+                                    title="Degradar a Jugador"
+                                    className="p-1.5 bg-gray-800 text-gray-400 hover:bg-gray-700 rounded border border-gray-700 transition-colors"
+                                >
+                                    <UserIcon className="w-3.5 h-3.5" />
+                                </button>
+                            )}
+                        </>
                     )}
 
                     <div className="w-px h-4 bg-gray-800 mx-1"></div>
@@ -106,17 +110,33 @@ export function UserActions({ user, currentUser, onDelete, onRoleUpdate, onOpenD
                             <Trash2 className="w-3.5 h-3.5" />
                         </button>
                     )}
+
+                    {/* Botón Editar (Solo Invitados) */}
+                    {onEdit && (user.role === 'guest' || user.id.startsWith('guest_')) && (isAdmin || isSuperAdmin) && (
+                        <button
+                            onClick={(e) => { e.stopPropagation(); onEdit(user); }}
+                            title="Editar Nombre"
+                            className="p-1.5 bg-blue-900/10 text-blue-500 hover:bg-blue-900/30 rounded border border-blue-900/20 transition-colors"
+                        >
+                            <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                    )}
                 </>
             )}
         </div>
     );
 }
 
-export default function UserCard({ user, currentUser, onDelete, onRoleUpdate, onOpenDetail }: UserCardProps) {
+export default function UserCard({ user, currentUser, onDelete, onRoleUpdate, onOpenDetail, onEdit }: UserCardProps) {
     const roleColor = user.role === 'superadmin' ? 'text-purple-400 bg-purple-500/10 border-purple-500/20'
         : user.role === 'admin' ? 'text-blue-400 bg-blue-500/10 border-blue-500/20'
-            : 'text-gray-400 bg-gray-800 border-gray-700';
-    const RoleIcon = user.role === 'superadmin' ? ShieldCheck : user.role === 'admin' ? Shield : UserIcon;
+            : user.id.startsWith('guest_') || user.role === 'guest' ? 'text-amber-400 bg-amber-500/10 border-amber-500/20' // Estilo Invitado
+                : 'text-gray-400 bg-gray-800 border-gray-700';
+
+    const RoleIcon = user.role === 'superadmin' ? ShieldCheck
+        : user.role === 'admin' ? Shield
+            : user.role === 'guest' || user.id.startsWith('guest_') ? UserIcon // Podrías usar otro icono si quieres
+                : UserIcon;
 
     // Lógica de Deuda
     const debt = user.totalDebt || 0;
@@ -183,6 +203,7 @@ export default function UserCard({ user, currentUser, onDelete, onRoleUpdate, on
                     onDelete={onDelete}
                     onRoleUpdate={onRoleUpdate}
                     onOpenDetail={onOpenDetail}
+                    onEdit={onEdit}
                 />
             </div>
         </div>
