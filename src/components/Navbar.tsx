@@ -40,11 +40,12 @@ export default function Navbar() {
                 <div className="flex-shrink-0 flex items-center">
                     <Link href="/" className="hover:opacity-80 transition-opacity">
                         <Image
-                            src="/navbar-logo.png"
+                            src="/brand-logo.png"
                             alt="FutStats"
                             width={140}
                             height={40}
                             className="h-8 md:h-10 w-auto object-contain"
+                            style={{ width: 'auto' }}
                             priority
                         />
                     </Link>
