@@ -13,7 +13,8 @@ import StatsTable from '@/components/StatsTable';
 import MatchCard from '@/components/MatchCard';
 import UserDirectory from '@/components/UserDirectory';
 import OnboardingModal from '@/components/OnboardingModal';
-import { Plus, Users, Settings, Shield, Contact } from 'lucide-react';
+import GroupFinderModal from '@/components/GroupFinderModal';
+import { Plus, Users, Settings, Shield, Contact, Search } from 'lucide-react';
 import { collection, query, orderBy, limit, onSnapshot, where, getDocs, updateDoc, doc, documentId } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
@@ -40,9 +41,11 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState('stats');
 
   // Estados para controlar la visibilidad de los Modales (ventanas emergentes)
+  // Estados para controlar la visibilidad de los Modales (ventanas emergentes)
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
   const [isMatchModalOpen, setIsMatchModalOpen] = useState(false);
   const [isEditGroupModalOpen, setIsEditGroupModalOpen] = useState(false);
+  const [isGroupFinderOpen, setIsGroupFinderOpen] = useState(false);
 
   // Estados de DATOS (Partidos y Grupos)
   const [matches, setMatches] = useState<any[]>([]);
@@ -55,6 +58,34 @@ export default function Home() {
   // --- ESTADOS PARA RANKING CONTEXTUAL ---
   const [rankingGroupId, setRankingGroupId] = useState<string | null>(null);
   const [availableRankingGroups, setAvailableRankingGroups] = useState<{ id: string, name: string }[]>([]);
+
+  // --- ADMIN REQUESTS STATE (Superadmin Only) ---
+  const [adminRequests, setAdminRequests] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (role !== 'superadmin' || activeTab !== 'overview') return;
+
+    // Listen for pending admin requests
+    const q = query(collection(db, 'users'), where('adminRequestStatus', '==', 'pending'));
+    const unsub = onSnapshot(q, (snap) => {
+      setAdminRequests(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+    return () => unsub();
+  }, [role, activeTab]);
+
+  const handleAdminRequest = async (userId: string, action: 'approve' | 'reject') => {
+    if (!confirm(`¿${action === 'approve' ? 'Aprobar' : 'Rechazar'} solicitud de admin?`)) return;
+    try {
+      await updateDoc(doc(db, 'users', userId), {
+        role: action === 'approve' ? 'admin' : 'user', // If rejected, stay user (or explicit logic)
+        adminRequestStatus: action === 'approve' ? null : 'rejected'
+      });
+      alert(`Solicitud ${action === 'approve' ? 'aprobada' : 'rechazada'}.`);
+    } catch (e) {
+      console.error("Error managing request:", e);
+      alert("Error al procesar solicitud.");
+    }
+  };
 
   // --- EFECTOS (USEEFFECT) ---
 
@@ -287,6 +318,37 @@ export default function Home() {
             <p className="text-gray-400 mt-1">Gestiona tus estadísticas y partidos.</p>
           </div>
 
+          {/* Admin Request Button for Regular Users */}
+          {role === 'user' && (
+            <div className="flex justify-center sm:justify-end">
+              {!userData?.adminRequestStatus ? (
+                <button
+                  onClick={async () => {
+                    if (!confirm("¿Quieres solicitar permisos de Organizador (Admin)? Esto te permitirá crear grupos y partidos.")) return;
+                    try {
+                      await updateDoc(doc(db, 'users', user.uid), { adminRequestStatus: 'pending' });
+                      alert("Solicitud enviada. Un Superadmin la revisará pronto.");
+                    } catch (e) {
+                      console.error("Error requesting admin:", e);
+                      alert("Error al enviar solicitud.");
+                    }
+                  }}
+                  className="px-4 py-2 text-sm font-medium text-amber-500 border border-amber-500/30 rounded-lg hover:bg-amber-900/10 transition-colors flex items-center gap-2"
+                >
+                  🚀 Solicitar cuenta de Organizador
+                </button>
+              ) : userData.adminRequestStatus === 'pending' ? (
+                <span className="px-4 py-2 text-sm font-medium text-yellow-500 bg-yellow-900/10 border border-yellow-500/20 rounded-lg cursor-default flex items-center gap-2">
+                  ⏳ Solicitud de Admin en revisión
+                </span>
+              ) : userData.adminRequestStatus === 'rejected' && (
+                <span className="px-4 py-2 text-sm font-medium text-red-400 bg-red-900/10 border border-red-500/20 rounded-lg cursor-default">
+                  ❌ Solicitud rechazada
+                </span>
+              )}
+            </div>
+          )}
+
           <div className="w-full">
             {/* Navegación por Pestañas (Componente hijo) */}
             <DashboardNav activeTab={activeTab} onTabChange={setActiveTab} />
@@ -298,26 +360,38 @@ export default function Home() {
           {/* 1. Vista de ESTADÍSTICAS */}
           {activeTab === 'stats' && (
             <div className="space-y-4">
-              {/* Context Selector */}
-              <div className="flex justify-end">
-                <div className="relative inline-block w-full sm:w-64">
-                  <select
-                    value={rankingGroupId || ""}
-                    onChange={(e) => setRankingGroupId(e.target.value === "" ? null : e.target.value)}
-                    className="w-full bg-gray-900 border border-gray-700 text-white rounded-lg px-4 py-2 appearance-none focus:ring-2 focus:ring-green-500/50 outline-none"
+              <div className="space-y-4">
+                {/* Context Selector and Actions */}
+                <div className="flex flex-col sm:flex-row justify-between items-end sm:items-center gap-4">
+
+                  {/* Action Buttons for non-admins usually, or general use */}
+                  <button
+                    onClick={() => setIsGroupFinderOpen(true)}
+                    className="text-sm text-blue-400 hover:text-white flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/5 transition-colors border border-transparent hover:border-white/10"
                   >
-                    <option value="">🏆 Ranking Global</option>
-                    {availableRankingGroups.map(g => (
-                      <option key={g.id} value={g.id}>🛡️ {g.name}</option>
-                    ))}
-                  </select>
-                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-400">
-                    <Shield className="h-4 w-4" />
+                    <Search className="w-4 h-4" />
+                    Explorar Grupos
+                  </button>
+
+                  <div className="relative inline-block w-full sm:w-64">
+                    <select
+                      value={rankingGroupId || ""}
+                      onChange={(e) => setRankingGroupId(e.target.value === "" ? null : e.target.value)}
+                      className="w-full bg-gray-900 border border-gray-700 text-white rounded-lg px-4 py-2 appearance-none focus:ring-2 focus:ring-green-500/50 outline-none"
+                    >
+                      <option value="">🏆 Ranking Global</option>
+                      {availableRankingGroups.map(g => (
+                        <option key={g.id} value={g.id}>🛡️ {g.name}</option>
+                      ))}
+                    </select>
+                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-400">
+                      <Shield className="h-4 w-4" />
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <StatsTable selectedGroupId={rankingGroupId} />
+                <StatsTable selectedGroupId={rankingGroupId} />
+              </div>
             </div>
           )}
 
@@ -411,6 +485,39 @@ export default function Home() {
               </div>
 
               {/* Managed Groups Section */}
+              {role === 'superadmin' && adminRequests.length > 0 && (
+                <div className="bg-amber-900/10 backdrop-blur-md border border-amber-500/30 rounded-xl overflow-hidden shadow-lg p-6 mb-8">
+                  <h2 className="text-lg font-semibold text-amber-500 mb-4 flex items-center gap-2">
+                    <Shield className="w-5 h-5" />
+                    Solicitudes de Administrador ({adminRequests.length})
+                  </h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {adminRequests.map((reqUser: any) => (
+                      <div key={reqUser.id} className="bg-gray-950 border border-amber-500/20 p-4 rounded-xl flex items-center justify-between">
+                        <div>
+                          <p className="font-bold text-white">{reqUser.displayName || "Usuario"}</p>
+                          <p className="text-xs text-gray-400">{reqUser.email}</p>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleAdminRequest(reqUser.id, 'approve')}
+                            className="p-1.5 bg-green-500/20 text-green-500 rounded hover:bg-green-500/40 transition-colors" title="Aprobar"
+                          >
+                            <Shield className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleAdminRequest(reqUser.id, 'reject')}
+                            className="p-1.5 bg-red-500/20 text-red-500 rounded hover:bg-red-500/40 transition-colors" title="Rechazar"
+                          >
+                            <Settings className="w-4 h-4 rotate-45" /> {/* Use X icon if available or makeshift */}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="bg-gray-900/50 backdrop-blur-md border border-gray-800 rounded-xl overflow-hidden shadow-lg p-6">
                 <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
                   <Shield className="w-5 h-5 text-blue-400" />
@@ -460,6 +567,10 @@ export default function Home() {
             onClose={() => setIsEditGroupModalOpen(false)}
             groupData={selectedGroup}
             onUpdate={refreshGroups}
+          />
+          <GroupFinderModal
+            isOpen={isGroupFinderOpen}
+            onClose={() => setIsGroupFinderOpen(false)}
           />
 
           {/* --- ONBOARDING OBLIGATORIO --- */}

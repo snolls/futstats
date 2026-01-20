@@ -238,7 +238,14 @@ export default function UserDirectory({ currentUser }: UserDirectoryProps) {
                         batch.delete(statDoc.ref);
                     });
 
-                    // 3. Delete User
+                    // 3. Delete Request from Group Requests
+                    const requestsQ = query(collection(db, "group_requests"), where("userId", "==", userId));
+                    const requestsSnap = await getDocs(requestsQ);
+                    requestsSnap.forEach(reqDoc => {
+                        batch.delete(reqDoc.ref);
+                    });
+
+                    // 4. Delete User
                     const userRef = doc(db, "users", userId);
                     batch.delete(userRef);
 
@@ -264,6 +271,35 @@ export default function UserDirectory({ currentUser }: UserDirectoryProps) {
                     setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, role: newRole } : u));
                 } catch (error) {
                     console.error("Error updating role:", error);
+                }
+            }
+        );
+    };
+
+    const handleReviewRequest = async (userId: string, action: 'approve' | 'reject') => {
+        confirmAction(
+            action === 'approve' ? "Aprobar Admin" : "Rechazar Solicitud",
+            `¿Estás seguro de que quieres ${action === 'approve' ? 'aprobar' : 'rechazar'} la solicitud de administrador?`,
+            action === 'approve' ? "info" : "danger",
+            async () => {
+                try {
+                    await updateDoc(doc(db, "users", userId), {
+                        role: action === 'approve' ? 'admin' : 'user', // If rejected, explicitly ensure user role
+                        adminRequestStatus: action === 'approve' ? null : 'rejected'
+                    });
+
+                    setUsers(prev => prev.map(u => {
+                        if (u.id === userId) {
+                            return {
+                                ...u,
+                                role: action === 'approve' ? 'admin' : u.role,
+                                adminRequestStatus: action === 'approve' ? null : 'rejected'
+                            };
+                        }
+                        return u;
+                    }));
+                } catch (error) {
+                    console.error("Error managing request:", error);
                 }
             }
         );
@@ -451,7 +487,9 @@ export default function UserDirectory({ currentUser }: UserDirectoryProps) {
                             onDelete={handleDeleteUser}
                             onRoleUpdate={handleUpdateRole}
                             onOpenDetail={() => openUserDetail(u)}
+                            onOpenDetail={() => openUserDetail(u)}
                             onEdit={handleEditGuest}
+                            onReviewRequest={handleReviewRequest}
                         />
                     ))}
                 </div>
@@ -477,7 +515,10 @@ export default function UserDirectory({ currentUser }: UserDirectoryProps) {
                                     onRoleUpdate={handleUpdateRole}
                                     onOpenDetail={() => openUserDetail(u)}
                                     // @ts-ignore - Prop drilling simple
+                                    onOpenDetail={() => openUserDetail(u)}
+                                    // @ts-ignore - Prop drilling simple
                                     onEdit={handleEditGuest}
+                                    onReviewRequest={handleReviewRequest}
                                 />
                             ))}
                         </tbody>

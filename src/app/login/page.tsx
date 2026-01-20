@@ -77,10 +77,29 @@ export default function LoginPage() {
             }
         } catch (e: any) {
             console.error("Auth error:", e);
-            let msg = e.message;
-            if (e.code === 'auth/invalid-credential') msg = "Credenciales incorrectas.";
-            if (e.code === 'auth/email-already-in-use') msg = "El correo ya está registrado.";
-            if (e.code === 'auth/weak-password') msg = "La contraseña es muy débil.";
+            let msg = "Ocurrió un error inesperado. Inténtalo de nuevo.";
+
+            switch (e.code) {
+                case 'auth/invalid-credential':
+                    msg = "Correo o contraseña incorrectos. Si no tienes cuenta, regístrate.";
+                    break;
+                case 'auth/user-not-found':
+                    msg = "Usuario no encontrado. Por favor, regístrate.";
+                    break;
+                case 'auth/wrong-password':
+                    msg = "Contraseña incorrecta.";
+                    break;
+                case 'auth/email-already-in-use':
+                    msg = "Este correo ya está registrado. Intenta iniciar sesión.";
+                    break;
+                case 'auth/weak-password':
+                    msg = "La contraseña debe tener al menos 6 caracteres.";
+                    break;
+                case 'auth/too-many-requests':
+                    msg = "Demasiados intentos fallidos. Inténtalo más tarde.";
+                    break;
+            }
+
             setError(msg);
             setIsLoggingIn(false);
         }

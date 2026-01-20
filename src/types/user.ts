@@ -18,6 +18,7 @@ export interface AppUserCustomData {
   position?: string;
   strongFoot?: 'right' | 'left' | 'ambidextrous';
   onboardingCompleted?: boolean;
+  adminRequestStatus?: 'pending' | 'rejected' | null;
 }
 
 export const PLAYER_POSITIONS = {

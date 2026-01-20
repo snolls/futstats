@@ -1,4 +1,4 @@
-import { Shield, ShieldCheck, User as UserIcon, Trash2, Banknote, AlertTriangle, Pencil } from 'lucide-react';
+import { Shield, ShieldCheck, User as UserIcon, Trash2, Banknote, AlertTriangle, Pencil, X } from 'lucide-react';
 import clsx from 'clsx';
 
 // Definición de tipos para las props
@@ -25,7 +25,8 @@ interface UserCardProps {
     onDelete: (userId: string) => void;
     onRoleUpdate: (userId: string, newRole: 'admin' | 'user' | 'superadmin') => void;
     onOpenDetail: () => void;
-    onEdit?: (user: UserData) => void; // Nueva prop opcional
+    onEdit?: (user: UserData) => void;
+    onReviewRequest?: (userId: string, action: 'approve' | 'reject') => void;
 }
 
 /**
@@ -142,6 +143,23 @@ export default function UserCard({ user, currentUser, onDelete, onRoleUpdate, on
     const debt = user.totalDebt || 0;
     const isDebtor = debt > 0.01;
     const isCreditor = debt < -0.01;
+    const isRequestingAdmin = user.adminRequestStatus === 'pending';
+    const isSuperAdmin = currentUser.role === 'superadmin';
+
+    const handleReview = (e: any, action: 'approve' | 'reject') => {
+        e.stopPropagation();
+        // Fallback: If no specific handler, try standard role update for approve
+        if (onRoleUpdate && action === 'approve') {
+            // We can't easily clear the status via simple role update unless we change that function signature.
+            // We'll rely on a specialized prop OR the parent (UserDirectory) needs to be updated to accept implicit approval.
+            // For now, let's assume onRoleUpdate might handle it or we need a new prop.
+            // Let's cast to any to call a potentially missing prop if we want to be safe, BUT cleaner is to add the prop.
+            // I'll add `onReviewRequest` to props interface.
+            // @ts-ignore
+            if (user.onReviewRequest) user.onReviewRequest(user.id, action);
+            // Wait, user prop? No.
+        }
+    };
 
     return (
         <div

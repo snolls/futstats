@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { X, Users, Loader2 } from "lucide-react";
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import { addDoc, collection, serverTimestamp, getDocs, query, where } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuthContext } from "@/context/AuthContext";
 
@@ -27,6 +27,16 @@ export default function CreateGroupModal({ isOpen, onClose }: CreateGroupModalPr
         setError(null);
 
         try {
+            // Check for uniqueness
+            const q = query(collection(db, "groups"), where("name", "==", groupName.trim()));
+            const querySnapshot = await getDocs(q);
+
+            if (!querySnapshot.empty) {
+                setError("Ya existe un grupo con este nombre.");
+                setIsLoading(false);
+                return;
+            }
+
             await addDoc(collection(db, "groups"), {
                 name: groupName.trim(),
                 adminIds: [user.uid],

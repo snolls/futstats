@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { X, Users, Loader2, Save, Trash2, Shield, ShieldCheck, UserPlus, Search } from "lucide-react";
-import { doc, updateDoc, deleteDoc, getDocs, collection, query, where, arrayUnion, arrayRemove, limit } from "firebase/firestore";
+import { doc, updateDoc, deleteDoc, getDocs, collection, query, where, arrayUnion, arrayRemove, limit, writeBatch } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuthContext } from "@/context/AuthContext";
 
@@ -29,8 +29,10 @@ interface EditGroupModalProps {
 
 export default function EditGroupModal({ isOpen, onClose, groupData, onUpdate }: EditGroupModalProps) {
     const { user, userData } = useAuthContext();
+    const [activeTab, setActiveTab] = useState<'members' | 'requests'>('members');
     const [name, setName] = useState("");
     const [members, setMembers] = useState<UserData[]>([]);
+    const [requests, setRequests] = useState<any[]>([]);
     const [admins, setAdmins] = useState<string[]>([]);
 
     // Search State
@@ -47,11 +49,68 @@ export default function EditGroupModal({ isOpen, onClose, groupData, onUpdate }:
             setName(groupData.name);
             setAdmins(groupData.adminIds || []);
             fetchMembers(groupData.members || []);
+            fetchRequests(groupData.id);
             setSearchTerm("");
             setSearchResults([]);
             setError(null);
+            setActiveTab('members');
         }
     }, [isOpen, groupData]);
+
+    const fetchRequests = async (groupId: string) => {
+        try {
+            const q = query(
+                collection(db, "group_requests"),
+                where("groupId", "==", groupId),
+                where("status", "==", "pending")
+            );
+            const snap = await getDocs(q);
+            setRequests(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        } catch (err) {
+            console.error("Error fetching requests:", err);
+        }
+    };
+
+    const handleAcceptRequest = async (req: any) => {
+        if (!groupData) return;
+        try {
+            const batch = writeBatch(db);
+
+            // Add to group
+            const groupRef = doc(db, "groups", groupData.id);
+            batch.update(groupRef, { members: arrayUnion(req.userId) });
+
+            // Add to user
+            const userRef = doc(db, "users", req.userId);
+            batch.update(userRef, { associatedGroups: arrayUnion(groupData.id) });
+
+            // Delete request (clean up)
+            const reqRef = doc(db, "group_requests", req.id);
+            batch.delete(reqRef);
+
+            await batch.commit();
+
+            // Update local state
+            setRequests(prev => prev.filter(r => r.id !== req.id));
+            if (groupData.members) {
+                fetchMembers([...groupData.members, req.userId]);
+            }
+            onUpdate();
+        } catch (err) {
+            console.error("Error accepting request:", err);
+            setError("Error al aceptar solicitud.");
+        }
+    };
+
+    const handleRejectRequest = async (reqId: string) => {
+        try {
+            await deleteDoc(doc(db, "group_requests", reqId));
+            setRequests(prev => prev.filter(r => r.id !== reqId));
+        } catch (err) {
+            console.error("Error rejecting request:", err);
+            setError("Error al rechazar solicitud.");
+        }
+    };
 
     const fetchMembers = async (memberIds: string[]) => {
         if (!memberIds.length) {
@@ -126,10 +185,19 @@ export default function EditGroupModal({ isOpen, onClose, groupData, onUpdate }:
     const addMember = async (newMember: UserData) => {
         if (!groupData) return;
         try {
+            const batch = writeBatch(db);
             const groupRef = doc(db, "groups", groupData.id);
-            await updateDoc(groupRef, {
+            const userRef = doc(db, "users", newMember.id);
+
+            batch.update(groupRef, {
                 members: arrayUnion(newMember.id)
             });
+            batch.update(userRef, {
+                associatedGroups: arrayUnion(groupData.id)
+            });
+
+            await batch.commit();
+
             setMembers(prev => [...prev, newMember]);
             setSearchResults([]);
             setSearchTerm("");
@@ -156,11 +224,21 @@ export default function EditGroupModal({ isOpen, onClose, groupData, onUpdate }:
         }
 
         try {
+            const batch = writeBatch(db);
             const groupRef = doc(db, "groups", groupData.id);
-            await updateDoc(groupRef, {
+            const userRef = doc(db, "users", memberId);
+
+            batch.update(groupRef, {
                 members: arrayRemove(memberId),
                 adminIds: arrayRemove(memberId) // Also remove metadata if they were admin
             });
+
+            batch.update(userRef, {
+                associatedGroups: arrayRemove(groupData.id)
+            });
+
+            await batch.commit();
+
             setMembers(prev => prev.filter(m => m.id !== memberId));
             setAdmins(prev => prev.filter(id => id !== memberId));
             onUpdate();
@@ -241,14 +319,41 @@ export default function EditGroupModal({ isOpen, onClose, groupData, onUpdate }:
 
         setIsLoading(true);
         try {
-            await deleteDoc(doc(db, "groups", groupData.id));
-            // Optional: Delete matches associated? Or keep them orphaned? 
-            // For now, simple group deletion.
+            const batch = writeBatch(db);
+            const groupId = groupData.id;
+
+            // 1. Delete Group Document
+            const groupRef = doc(db, "groups", groupId);
+            batch.delete(groupRef);
+
+            // 2. Delete Group Requests
+            const requestsQ = query(collection(db, "group_requests"), where("groupId", "==", groupId));
+            const requestsSnap = await getDocs(requestsQ);
+            requestsSnap.forEach(reqDoc => {
+                batch.delete(reqDoc.ref);
+            });
+
+            // 3. Remove from Users' associatedGroups
+            // Note: We use groupData.members (which we loaded locally). 
+            // Better to use members from groupData directly if available.
+            // If members list is huge, this batch might exceed 500 ops limit. 
+            // Assuming reasonable group size for this MVP.
+            const memberIds = groupData.members || [];
+            memberIds.forEach(memberId => {
+                const userRef = doc(db, "users", memberId);
+                batch.update(userRef, {
+                    associatedGroups: arrayRemove(groupId)
+                });
+            });
+
+            await batch.commit();
+
             onUpdate();
             onClose();
         } catch (err) {
             console.error("Error eliminando grupo:", err);
             setError("Error al eliminar el grupo. Inténtalo de nuevo.");
+        } finally {
             setIsLoading(false);
         }
     };
@@ -280,80 +385,140 @@ export default function EditGroupModal({ isOpen, onClose, groupData, onUpdate }:
                         </div>
                     )}
 
-                    {/* Rename Section */}
-                    <form onSubmit={handleUpdateName} className="space-y-4">
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium text-slate-300">Nombre del Grupo</label>
-                            <div className="flex gap-2">
-                                <input
-                                    type="text"
-                                    value={name}
-                                    onChange={(e) => setName(e.target.value)}
-                                    className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                                />
-                                <button
-                                    type="submit"
-                                    disabled={isLoading || name === groupData?.name}
-                                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                                    Guardar
-                                </button>
-                            </div>
-                        </div>
-                    </form>
+                    {/* Tabs */}
+                    <div className="flex border-b border-slate-800 mb-6">
+                        <button
+                            onClick={() => setActiveTab('members')}
+                            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'members' ? 'border-blue-500 text-blue-500' : 'border-transparent text-slate-400 hover:text-white'}`}
+                        >
+                            Miembros ({members.length})
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('requests')}
+                            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'requests' ? 'border-blue-500 text-blue-500' : 'border-transparent text-slate-400 hover:text-white'}`}
+                        >
+                            Solicitudes
+                            {requests.length > 0 && (
+                                <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                                    {requests.length}
+                                </span>
+                            )}
+                        </button>
+                    </div>
 
-                    {/* Add Member Section */}
-                    <div className="space-y-2">
-                        <label className="text-sm font-medium text-slate-300">Añadir Miembros</label>
-                        <div className="relative">
-                            <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
-                            <input
-                                type="text"
-                                value={searchTerm}
-                                onChange={(e) => handleSearchUsers(e.target.value)}
-                                placeholder="Buscar por nombre (min 3 letras)..."
-                                className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                            />
-                        </div>
-                        {/* Search Results Dropdown */}
-                        {searchTerm.length >= 3 && (
-                            <div className="bg-slate-950 border border-slate-800 rounded-lg mt-2 max-h-40 overflow-y-auto">
-                                {isSearching ? (
-                                    <div className="p-3 text-center text-gray-500 text-sm">Buscando...</div>
-                                ) : searchResults.length === 0 ? (
-                                    <div className="p-3 text-center text-gray-500 text-sm">No se encontraron usuarios.</div>
-                                ) : (
-                                    searchResults.map(u => (
+                    {activeTab === 'members' ? (
+                        <>
+                            {/* Rename Section */}
+                            <form onSubmit={handleUpdateName} className="space-y-4">
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-slate-300">Nombre del Grupo</label>
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            value={name}
+                                            onChange={(e) => setName(e.target.value)}
+                                            className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                        />
                                         <button
-                                            key={u.id}
-                                            onClick={() => addMember(u)}
-                                            className="w-full text-left p-3 hover:bg-slate-800 flex items-center gap-3 transition-colors"
+                                            type="submit"
+                                            disabled={isLoading || name === groupData?.name}
+                                            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                                         >
-                                            <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-xs font-bold text-slate-400">
-                                                {u.displayName?.slice(0, 2).toUpperCase()}
-                                            </div>
-                                            <span className="text-sm text-slate-300">{u.displayName}</span>
-                                            <UserPlus className="w-4 h-4 ml-auto text-blue-500" />
+                                            {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                                            Guardar
                                         </button>
-                                    ))
+                                    </div>
+                                </div>
+                            </form>
+
+                            {/* Add Member Section */}
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-slate-300">Añadir Miembros</label>
+                                <div className="relative">
+                                    <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
+                                    <input
+                                        type="text"
+                                        value={searchTerm}
+                                        onChange={(e) => handleSearchUsers(e.target.value)}
+                                        placeholder="Buscar por nombre (min 3 letras)..."
+                                        className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                    />
+                                </div>
+                                {/* Search Results Dropdown */}
+                                {searchTerm.length >= 3 && (
+                                    <div className="bg-slate-950 border border-slate-800 rounded-lg mt-2 max-h-40 overflow-y-auto">
+                                        {isSearching ? (
+                                            <div className="p-3 text-center text-gray-500 text-sm">Buscando...</div>
+                                        ) : searchResults.length === 0 ? (
+                                            <div className="p-3 text-center text-gray-500 text-sm">No se encontraron usuarios.</div>
+                                        ) : (
+                                            searchResults.map(u => (
+                                                <button
+                                                    key={u.id}
+                                                    onClick={() => addMember(u)}
+                                                    className="w-full text-left p-3 hover:bg-slate-800 flex items-center gap-3 transition-colors"
+                                                >
+                                                    <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-xs font-bold text-slate-400">
+                                                        {u.displayName?.slice(0, 2).toUpperCase()}
+                                                    </div>
+                                                    <span className="text-sm text-slate-300">{u.displayName}</span>
+                                                    <UserPlus className="w-4 h-4 ml-auto text-blue-500" />
+                                                </button>
+                                            ))
+                                        )}
+                                    </div>
                                 )}
                             </div>
-                        )}
-                    </div>
 
-                    {/* Members List */}
-                    <div className="space-y-4">
-                        <div className="flex items-center justify-between">
-                            <label className="text-sm font-medium text-slate-300">Miembros ({members.length})</label>
-                        </div>
+                            {/* Members List */}
+                            <div className="space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-sm font-medium text-slate-300">Miembros ({members.length})</label>
+                                </div>
 
-                        {isLoadingMembers ? (
-                            <div className="flex justify-center py-8">
-                                <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
+                                {isLoadingMembers ? (
+                                    <div className="flex justify-center py-8">
+                                        <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
+                                    </div>
+                                ) : MembersList(members, admins, user?.uid, toggleAdmin, removeMember)}
                             </div>
-                        ) : MembersList(members, admins, user?.uid, toggleAdmin, removeMember)}
-                    </div>
+                        </>
+                    ) : (
+                        // REQUESTS TAB
+                        <div className="space-y-4">
+                            <h4 className="text-sm font-bold text-slate-300">Solicitudes Pendientes</h4>
+                            {requests.length === 0 ? (
+                                <div className="text-center py-10 bg-slate-950/30 rounded-lg border border-slate-800 border-dashed text-slate-500 text-sm">
+                                    No hay solicitudes pendientes.
+                                </div>
+                            ) : (
+                                <div className="space-y-2">
+                                    {requests.map(req => (
+                                        <div key={req.id} className="flex items-center justify-between p-4 bg-slate-950 border border-slate-800 rounded-xl">
+                                            <div>
+                                                <p className="font-bold text-white text-sm">{req.userName}</p>
+                                                <p className="text-xs text-slate-500">Quiere unirse al grupo</p>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    onClick={() => handleAcceptRequest(req)}
+                                                    className="px-3 py-1.5 bg-green-600 hover:bg-green-500 text-white text-xs font-bold rounded-lg transition-colors shadow-lg shadow-green-900/20"
+                                                >
+                                                    Aceptar
+                                                </button>
+                                                <button
+                                                    onClick={() => handleRejectRequest(req.id)}
+                                                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold rounded-lg transition-colors border border-slate-700"
+                                                >
+                                                    Rechazar
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { X, Calendar, Wallet, CheckCircle2, AlertTriangle, Plus, Minus, Loader2, History, RotateCcw, Pencil, Save, Users } from 'lucide-react';
+import { X, Calendar, Wallet, CheckCircle2, AlertTriangle, Plus, Minus, Loader2, History, RotateCcw, Pencil, Save, Users, Shield } from 'lucide-react';
 import { usePlayerDebts } from '@/hooks/usePlayerDebts';
 import { AppUserCustomData, PLAYER_POSITIONS } from '@/types/user';
 import { db } from '@/lib/firebase';
@@ -413,6 +413,39 @@ export default function UserDetailModal({ isOpen, onClose, user, onUpdate }: Use
                                     {(user.associatedGroups || []).length > 0 && <span className="text-[10px] text-slate-500 bg-slate-800 px-1.5 rounded">{user.associatedGroups?.length} Grupos</span>}
                                 </div>
                             </div>
+
+                            {/* Admin Request UI */}
+                            {currentUser?.uid === user.id && user.role === 'user' && (
+                                <div className="mt-2">
+                                    {user.adminRequestStatus === 'pending' ? (
+                                        <span className="text-xs bg-yellow-500/10 text-yellow-500 border border-yellow-500/20 px-2 py-1 rounded font-bold flex items-center gap-1 inline-block">
+                                            <Loader2 className="w-3 h-3 animate-spin" /> Solicitud Pendiente
+                                        </span>
+                                    ) : user.adminRequestStatus === 'rejected' ? (
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-xs bg-red-500/10 text-red-500 border border-red-500/20 px-2 py-1 rounded font-bold">
+                                                Solicitud Rechazada
+                                            </span>
+                                            <button
+                                                onClick={handleRequestAdmin}
+                                                disabled={processingId === 'request-admin'}
+                                                className="text-xs text-blue-400 hover:text-blue-300 underline"
+                                            >
+                                                Solicitar de nuevo
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <button
+                                            onClick={handleRequestAdmin}
+                                            disabled={processingId === 'request-admin'}
+                                            className="text-xs bg-blue-600/20 hover:bg-blue-600/40 text-blue-400 border border-blue-500/30 px-3 py-1.5 rounded font-bold transition-all flex items-center gap-2"
+                                        >
+                                            {processingId === 'request-admin' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Shield className="w-3 h-3" />}
+                                            Solicitar Admin
+                                        </button>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </div>
                     <button onClick={onClose} className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800">
