@@ -11,6 +11,7 @@ export interface AppUserCustomData {
   displayName?: string | null;
   photoURL?: string | null;
   email?: string | null;
+  manualDebt?: number;
 }
 
 export interface AppUser extends User {

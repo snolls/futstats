@@ -21,6 +21,8 @@ export interface MatchStats {
     isMvp: boolean;
     paymentStatus: PaymentStatus;
     matchDate: Timestamp;
+    isGuest?: boolean;
+    displayName?: string;
 }
 
 export interface Match {

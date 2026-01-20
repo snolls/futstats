@@ -6,7 +6,7 @@ import { db } from '@/lib/firebase';
 import { MatchStats } from '@/types/business';
 import { AppUserCustomData } from '@/types/user';
 import { useAuthContext } from '@/context/AuthContext';
-import { ArrowDown, ArrowUp, ArrowUpDown } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, User, Ghost } from 'lucide-react';
 
 interface PlayerStatRow {
     uid: string;
@@ -15,6 +15,7 @@ interface PlayerStatRow {
     goals: number;
     assists: number;
     mvps: number;
+    isGuest: boolean;
 }
 
 export default function StatsTable() {
@@ -71,10 +72,17 @@ export default function StatsTable() {
                     snap.forEach(d => allStats.push(d.data() as MatchStats));
                 }
 
-                const userIds = new Set(allStats.map(s => s.userId));
+                // Identify Users vs Guests
+                const registeredUserIds = new Set<string>();
+                allStats.forEach(s => {
+                    if (!s.isGuest && s.userId) {
+                        registeredUserIds.add(s.userId);
+                    }
+                });
+
                 const userMap: Record<string, string> = {};
-                if (userIds.size > 0) {
-                    const uIdsArray = Array.from(userIds);
+                if (registeredUserIds.size > 0) {
+                    const uIdsArray = Array.from(registeredUserIds);
                     for (let i = 0; i < uIdsArray.length; i += 10) {
                         const chunk = uIdsArray.slice(i, i + 10);
                         if (chunk.length > 0) {
@@ -92,19 +100,24 @@ export default function StatsTable() {
                 allStats.forEach(stat => {
                     const pid = stat.userId;
                     if (!pid) return;
+
+                    const isGuest = !!stat.isGuest;
+                    // Use guest display name or map from registered users
+                    const displayName = isGuest ? (stat.displayName || 'Invitado') : (userMap[pid] || 'Desconocido');
+
                     if (!aggregation[pid]) {
                         aggregation[pid] = {
                             uid: pid,
-                            displayName: userMap[pid] || 'Desconocido',
+                            displayName: displayName,
                             matchesPlayed: 0,
                             goals: 0,
-                            assists: 0, // Ignoring in UI
-                            mvps: 0
+                            assists: 0,
+                            mvps: 0,
+                            isGuest: isGuest
                         };
                     }
                     aggregation[pid].matchesPlayed += 1;
                     aggregation[pid].goals += (stat.goals || 0);
-                    // aggregation[pid].assists += (stat.assists || 0);
                     if ((stat as any).isMvp) aggregation[pid].mvps += 1;
                 });
 
@@ -195,7 +208,6 @@ export default function StatsTable() {
                                     MVP <SortIcon column="mvps" />
                                 </div>
                             </th>
-                            {/* Placeholder for Win% (Not implemented due to schema limitation, but logic structure is here) */}
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-800">
@@ -204,13 +216,23 @@ export default function StatsTable() {
                                 <td className="p-4 flex items-center gap-3">
                                     <span className={`
                                         w-6 h-6 flex items-center justify-center rounded-full text-xs font-bold
-                                        ${index === 0 && sortConfig.key === 'goals' ? 'bg-yellow-500 text-black' :
-                                            index === 1 && sortConfig.key === 'goals' ? 'bg-gray-400 text-black' :
-                                                index === 2 && sortConfig.key === 'goals' ? 'bg-orange-700 text-white' : 'bg-gray-800 text-gray-400'}
+                                        ${index === 0 ? 'bg-yellow-500 text-black shadow-lg shadow-yellow-500/20' :
+                                            index === 1 ? 'bg-gray-300 text-black shadow-lg shadow-gray-400/20' :
+                                                index === 2 ? 'bg-amber-700 text-white shadow-lg shadow-amber-900/40' : 'bg-gray-800 text-gray-400'}
                                     `}>
                                         {index + 1}
                                     </span>
-                                    <span className="font-medium text-white">{player.displayName}</span>
+                                    {player.isGuest ? (
+                                        <div title="Invitado" className="p-1 rounded bg-amber-900/20">
+                                            <Ghost className="w-4 h-4 text-amber-500" />
+                                        </div>
+                                    ) : (
+                                        <User className="w-4 h-4 text-gray-500" />
+                                    )}
+                                    <span className={player.isGuest ? "font-medium text-amber-200" : "font-medium text-white"}>
+                                        {player.displayName}
+                                    </span>
+                                    {player.isGuest && <span className="text-[10px] uppercase text-amber-500/70 font-bold ml-1">(Inv)</span>}
                                 </td>
                                 <td className="p-4 text-center text-gray-300">{player.matchesPlayed}</td>
                                 <td className="p-4 text-center font-bold text-green-400">{player.goals}</td>

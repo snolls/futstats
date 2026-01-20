@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { X, Calendar, DollarSign, Users, AlertTriangle, Loader2, Trophy, Shield } from "lucide-react";
+import { X, Calendar, Euro, Users, AlertTriangle, Loader2, Trophy, Shield, UserPlus } from "lucide-react";
 import { addDoc, collection, serverTimestamp, getDocs, query, where, writeBatch, doc, documentId } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuthContext } from "@/context/AuthContext";
@@ -17,6 +17,13 @@ interface GroupData {
     id: string;
     name: string;
     members?: string[];
+    adminIds?: string[];
+}
+
+interface GuestUser {
+    id: string;
+    displayName: string;
+    isGuest: true;
 }
 
 interface CreateMatchModalProps {
@@ -26,6 +33,16 @@ interface CreateMatchModalProps {
 
 const GAME_FORMATS = ["5vs5", "6vs6", "7vs7", "8vs8", "9vs9", "10vs10", "11vs11"];
 
+const FORMAT_REQUIREMENTS: Record<string, number> = {
+    "5vs5": 10,
+    "6vs6": 12,
+    "7vs7": 14,
+    "8vs8": 16,
+    "9vs9": 18,
+    "10vs10": 20,
+    "11vs11": 22
+};
+
 export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalProps) {
     const { user, userData } = useAuthContext();
 
@@ -34,7 +51,9 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
     const [format, setFormat] = useState("7vs7");
     const [date, setDate] = useState("");
     const [price, setPrice] = useState("");
-    const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
+    const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+    const [guests, setGuests] = useState<GuestUser[]>([]);
+    const [guestNameInput, setGuestNameInput] = useState("");
 
     // Data State
     const [myGroups, setMyGroups] = useState<GroupData[]>([]);
@@ -94,15 +113,17 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
         const fetchGroupMembers = async () => {
             setIsFetchingUsers(true);
             setError(null);
-            setSelectedUsers([]);
+            setSelectedUserIds([]);
+            setGuests([]);
 
             try {
                 const group = myGroups.find(g => g.id === selectedGroupId);
                 if (!group) return;
 
-                let membersToFetch = group.members || [];
+                let membersToFetch = new Set([...(group.members || []), ...(group.adminIds || [])]);
+                const memberList = Array.from(membersToFetch);
 
-                if (membersToFetch.length === 0) {
+                if (memberList.length === 0) {
                     setAvailableUsers([]);
                     setIsFetchingUsers(false);
                     return;
@@ -111,8 +132,8 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                 const users: UserData[] = [];
                 const chunkSize = 10;
 
-                for (let i = 0; i < membersToFetch.length; i += chunkSize) {
-                    const chunk = membersToFetch.slice(i, i + chunkSize);
+                for (let i = 0; i < memberList.length; i += chunkSize) {
+                    const chunk = memberList.slice(i, i + chunkSize);
                     if (chunk.length > 0) {
                         const q = query(
                             collection(db, "users"),
@@ -161,18 +182,36 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
 
 
     const toggleUser = (userId: string) => {
-        setSelectedUsers(prev =>
+        setSelectedUserIds(prev =>
             prev.includes(userId)
                 ? prev.filter(id => id !== userId)
                 : [...prev, userId]
         );
     };
 
-    const hasSelectedDebtors = selectedUsers.some(id => usersWithDebt.has(id));
+    const addGuest = () => {
+        if (!guestNameInput.trim()) return;
+        const newGuest: GuestUser = {
+            id: `guest_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+            displayName: guestNameInput.trim(),
+            isGuest: true
+        };
+        setGuests(prev => [...prev, newGuest]);
+        setGuestNameInput("");
+    };
+
+    const removeGuest = (guestId: string) => {
+        setGuests(prev => prev.filter(g => g.id !== guestId));
+    };
+
+    const hasSelectedDebtors = selectedUserIds.some(id => usersWithDebt.has(id));
+    const totalSelected = selectedUserIds.length + guests.length;
+    const requiredPlayers = FORMAT_REQUIREMENTS[format] || 0;
+    const isPlayerCountValid = totalSelected === requiredPlayers;
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!date || !price || selectedUsers.length === 0 || !user || !selectedGroupId) return;
+        if (!date || !price || !isPlayerCountValid || !user || !selectedGroupId) return;
 
         setIsLoading(true);
         setError(null);
@@ -189,13 +228,14 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                 createdBy: user.uid,
                 status: "SCHEDULED",
                 createdAt: serverTimestamp(),
-                playerCount: selectedUsers.length,
+                playerCount: totalSelected,
             });
 
             // 2. Create Match Stats
             const batch = writeBatch(db);
 
-            selectedUsers.forEach(userId => {
+            // Regular Users
+            selectedUserIds.forEach(userId => {
                 const statsRef = doc(collection(db, "match_stats"));
                 batch.set(statsRef, {
                     matchId: matchRef.id,
@@ -208,11 +248,28 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                 });
             });
 
+            // Guests
+            guests.forEach(guest => {
+                const statsRef = doc(collection(db, "match_stats"));
+                batch.set(statsRef, {
+                    matchId: matchRef.id,
+                    userId: guest.id,
+                    displayName: guest.displayName,
+                    isGuest: true,
+                    paymentStatus: "PENDING",
+                    goals: 0,
+                    assists: 0,
+                    team: "PENDING",
+                    createdAt: serverTimestamp(),
+                });
+            });
+
             await batch.commit();
 
             setDate("");
             setPrice("");
-            setSelectedUsers([]);
+            setSelectedUserIds([]);
+            setGuests([]);
             onClose();
 
         } catch (err) {
@@ -277,7 +334,7 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                             <div className="space-y-2">
                                 <label className="text-sm font-medium text-gray-300 flex items-center gap-2">
                                     <Trophy className="w-4 h-4 text-yellow-500" />
-                                    Formato
+                                    Formato ({requiredPlayers} jugadores)
                                 </label>
                                 <select
                                     value={format}
@@ -285,7 +342,7 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                                     className="w-full bg-gray-950 border border-gray-800 rounded-lg px-4 py-2.5 text-white focus:ring-2 focus:ring-green-500/20 focus:border-green-500 transition-all outline-none"
                                 >
                                     {GAME_FORMATS.map(f => (
-                                        <option key={f} value={f}>{f}</option>
+                                        <option key={f} value={f}>{f} ({FORMAT_REQUIREMENTS[f]} jugadores)</option>
                                     ))}
                                 </select>
                             </div>
@@ -306,7 +363,7 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                             <div className="space-y-2">
                                 <label className="text-sm font-medium text-gray-300">Precio por Persona</label>
                                 <div className="relative">
-                                    <DollarSign className="absolute left-3 top-2.5 w-5 h-5 text-gray-500" />
+                                    <Euro className="absolute left-3 top-2.5 w-5 h-5 text-gray-500" />
                                     <input
                                         type="number"
                                         min="0"
@@ -325,11 +382,33 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                             <div className="flex items-center justify-between">
                                 <label className="text-sm font-medium text-gray-300 flex items-center gap-2">
                                     <Users className="w-4 h-4" />
-                                    Seleccionar Jugadores {availableUsers.length > 0 && `(${availableUsers.length} disp.)`}
+                                    Convocatoria
                                 </label>
-                                <span className="text-xs text-gray-500">
-                                    {selectedUsers.length} seleccionados
+                                <span className={`text-xs font-bold px-2 py-1 rounded ${isPlayerCountValid ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                                    {totalSelected} / {requiredPlayers} Jugadores
                                 </span>
+                            </div>
+
+                            {/* Guest Input */}
+                            <div className="flex gap-2 mb-2">
+                                <div className="relative flex-1">
+                                    <UserPlus className="absolute left-3 top-2.5 w-4 h-4 text-gray-500" />
+                                    <input
+                                        type="text"
+                                        placeholder="Nombre Invitado..."
+                                        className="w-full bg-gray-900 border border-gray-800 rounded-lg pl-9 pr-3 py-2 text-sm text-white focus:border-green-500 outline-none"
+                                        value={guestNameInput}
+                                        onChange={e => setGuestNameInput(e.target.value)}
+                                        onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addGuest())}
+                                    />
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={addGuest}
+                                    className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white text-sm font-medium rounded-lg"
+                                >
+                                    Añadir
+                                </button>
                             </div>
 
                             {!selectedGroupId ? (
@@ -347,8 +426,38 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                                 </div>
                             ) : (
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-60 overflow-y-auto p-1">
+                                    {/* Guests List */}
+                                    {guests.map(guest => (
+                                        <div
+                                            key={guest.id}
+                                            className="flex items-center justify-between p-3 rounded-lg border border-amber-500/30 bg-amber-500/5 select-none"
+                                        >
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold bg-amber-900/40 text-amber-500 border border-amber-500/20">
+                                                    IN
+                                                </div>
+                                                <div className="flex flex-col">
+                                                    <span className="text-sm font-medium text-amber-100">
+                                                        {guest.displayName}
+                                                    </span>
+                                                    <span className="text-[10px] text-amber-500 font-bold uppercase tracking-wider">
+                                                        Invitado
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => removeGuest(guest.id)}
+                                                className="text-gray-500 hover:text-red-400 p-1"
+                                            >
+                                                <X className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                    ))}
+
+                                    {/* Registered Users List */}
                                     {availableUsers.map(user => {
-                                        const isSelected = selectedUsers.includes(user.id);
+                                        const isSelected = selectedUserIds.includes(user.id);
                                         const hasDebt = usersWithDebt.has(user.id);
 
                                         return (
@@ -402,18 +511,20 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                         </button>
                         <button
                             type="submit"
-                            disabled={isLoading || selectedUsers.length === 0 || !selectedGroupId}
+                            disabled={isLoading || !isPlayerCountValid || !selectedGroupId}
                             className={`
                 px-6 py-2 text-sm font-bold text-white rounded-lg shadow-lg transition-all flex items-center gap-2
                 ${hasSelectedDebtors
                                     ? 'bg-orange-500 hover:bg-orange-600 shadow-orange-500/20'
                                     : 'bg-green-600 hover:bg-green-500 shadow-green-500/20'
                                 }
-                ${(isLoading || selectedUsers.length === 0 || !selectedGroupId) ? 'opacity-50 cursor-not-allowed' : ''}
+                ${(isLoading || !isPlayerCountValid || !selectedGroupId) ? 'opacity-50 cursor-not-allowed' : ''}
               `}
                         >
                             {isLoading && <Loader2 className="w-4 h-4 animate-spin" />}
-                            {hasSelectedDebtors ? 'Confirmar (con Deudas)' : 'Crear Partido'}
+                            {!isPlayerCountValid
+                                ? `Faltan ${Math.abs(requiredPlayers - totalSelected)}`
+                                : hasSelectedDebtors ? 'Confirmar (con Deudas)' : 'Crear Partido'}
                         </button>
                     </div>
                 </form>

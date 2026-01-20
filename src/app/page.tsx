@@ -12,6 +12,7 @@ import EditGroupModal from '@/components/EditGroupModal';
 import UsersTable from '@/components/UsersTable';
 import StatsTable from '@/components/StatsTable';
 import MatchCard from '@/components/MatchCard';
+import UserDirectory from '@/components/UserDirectory';
 import { Plus, Users, Settings, Shield, Contact } from 'lucide-react';
 import { collection, query, orderBy, limit, onSnapshot, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -82,7 +83,7 @@ export default function Home() {
   // Fetch Managed Groups
   useEffect(() => {
     const fetchGroups = () => {
-      if (!user || !role || activeTab !== 'admin') return;
+      if (!user || !role || activeTab !== 'overview') return;
 
       setGroupsLoading(true);
       try {
@@ -112,7 +113,7 @@ export default function Home() {
       }
     };
 
-    if (activeTab === 'admin') {
+    if (activeTab === 'overview') {
       const unsub = fetchGroups();
       return () => { if (typeof unsub === 'function') unsub(); }
     }
@@ -187,7 +188,11 @@ export default function Home() {
             </div>
           )}
 
-          {activeTab === 'admin' && (
+          {activeTab === 'users' && (
+            <UserDirectory currentUser={{ ...user, role: role || 'user' }} />
+          )}
+
+          {activeTab === 'overview' && (
             <div className="space-y-8">
               {/* Admin Actions */}
               <div className="bg-gray-900/50 backdrop-blur-md border border-gray-800 rounded-xl overflow-hidden shadow-lg p-6">
@@ -211,29 +216,7 @@ export default function Home() {
                         </div>
                       </button>
 
-                      <button
-                        onClick={async () => {
-                          if (confirm("¿Estás seguro de generar datos de prueba? Esto creará usuarios y partidos.")) {
-                            try {
-                              const { seedDatabase } = await import('@/utils/seed');
-                              await seedDatabase(user.uid);
-                              alert("Datos generados correctamente. Recarga la página.");
-                              window.location.reload();
-                            } catch (e) {
-                              alert("Error generando datos.");
-                            }
-                          }
-                        }}
-                        className="flex items-center justify-center gap-3 p-6 bg-purple-900/20 hover:bg-purple-900/30 border border-purple-800 rounded-xl transition-all group"
-                      >
-                        <div className="p-3 bg-purple-500/20 rounded-full text-purple-400 group-hover:scale-110 transition-transform">
-                          <Settings className="w-6 h-6" />
-                        </div>
-                        <div className="text-left">
-                          <h3 className="text-lg font-semibold text-white">Generar Datos (Seed)</h3>
-                          <p className="text-sm text-gray-400">Solo Superadmin</p>
-                        </div>
-                      </button>
+
                     </>
                   )}
 
@@ -253,7 +236,7 @@ export default function Home() {
                       </button>
 
                       <button
-                        onClick={() => router.push('/users')}
+                        onClick={() => setActiveTab('users')}
                         className="flex items-center justify-center gap-3 p-6 bg-gray-800 hover:bg-gray-700/50 border border-gray-700 rounded-xl transition-all group"
                       >
                         <div className="p-3 bg-indigo-500/20 rounded-full text-indigo-400 group-hover:scale-110 transition-transform">

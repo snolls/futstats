@@ -1,7 +1,7 @@
 'use client';
 
 import { useAuth } from '@/hooks/useAuth';
-import { BarChart3, List, ShieldCheck, Calendar, Users, Shield } from "lucide-react";
+import { BarChart3, List, ShieldCheck, Calendar, Shield, Users } from "lucide-react";
 import clsx from 'clsx';
 
 interface DashboardNavProps {
@@ -14,10 +14,11 @@ export default function DashboardNav({ activeTab, onTabChange }: DashboardNavPro
     const isAdmin = role === 'admin' || role === 'superadmin';
 
     const tabs = [
+
         { id: 'stats', label: 'Estadísticas', icon: BarChart3 },
         { id: 'matches', label: 'Mis Partidos', icon: Calendar },
-        { id: 'users', label: 'Usuarios', icon: Users }, // New Tab
-        { id: 'admin', label: 'Gestión', icon: Shield, adminOnly: true },
+        { id: 'users', label: 'Usuarios', icon: Users, adminOnly: true },
+        { id: 'overview', label: 'Gestión', icon: Shield, adminOnly: true },
     ].filter(tab => !tab.adminOnly || isAdmin); // Filter out admin-only tabs if not admin
 
     return (
