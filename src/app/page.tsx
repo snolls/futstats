@@ -12,6 +12,7 @@ import EditGroupModal from '@/components/EditGroupModal';
 import StatsTable from '@/components/StatsTable';
 import MatchCard from '@/components/MatchCard';
 import UserDirectory from '@/components/UserDirectory';
+import OnboardingModal from '@/components/OnboardingModal';
 import { Plus, Users, Settings, Shield, Contact } from 'lucide-react';
 import { collection, query, orderBy, limit, onSnapshot, where, getDocs, updateDoc, doc, documentId } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -452,6 +453,9 @@ export default function Home() {
             groupData={selectedGroup}
             onUpdate={refreshGroups}
           />
+
+          {/* --- ONBOARDING OBLIGATORIO --- */}
+          <OnboardingModal />
         </div>
       </main>
     </div>

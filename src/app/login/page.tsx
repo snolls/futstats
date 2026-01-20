@@ -1,9 +1,16 @@
 'use client';
 
-import { ArrowRight } from 'lucide-react';
+import { ArrowRight, Mail, Lock, User, Chrome } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
-import { auth } from '@/lib/firebase';
+import {
+    signInWithPopup,
+    GoogleAuthProvider,
+    createUserWithEmailAndPassword,
+    signInWithEmailAndPassword,
+    updateProfile
+} from 'firebase/auth';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { auth, db } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
@@ -12,6 +19,12 @@ export default function LoginPage() {
     const router = useRouter();
     const [error, setError] = useState<string>('');
     const [isLoggingIn, setIsLoggingIn] = useState(false);
+
+    // Email Auth State
+    const [isSignUp, setIsSignUp] = useState(false);
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [fullName, setFullName] = useState('');
 
     useEffect(() => {
         if (user && !loading) {
@@ -26,7 +39,49 @@ export default function LoginPage() {
             await signInWithPopup(auth, new GoogleAuthProvider());
             // Redirect handled by useEffect
         } catch (e: any) {
-            setError('Error al iniciar sesión: ' + e.message);
+            setError('Error con Google: ' + e.message);
+            setIsLoggingIn(false);
+        }
+    };
+
+    const handleEmailAuth = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setError('');
+        setIsLoggingIn(true);
+
+        try {
+            if (isSignUp) {
+                if (!fullName.trim()) throw new Error("El nombre es obligatorio.");
+
+                // 1. Create Identity
+                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                const newUser = userCredential.user;
+
+                // 2. Update Profile Display Name
+                await updateProfile(newUser, { displayName: fullName });
+
+                // 3. Create User Document in Firestore
+                await setDoc(doc(db, 'users', newUser.uid), {
+                    email: newUser.email,
+                    displayName: fullName,
+                    role: 'user', // Default role
+                    createdAt: serverTimestamp(),
+                    updatedAt: serverTimestamp(),
+                    photoURL: newUser.photoURL || null,
+                    onboardingCompleted: false
+                });
+
+            } else {
+                // Login
+                await signInWithEmailAndPassword(auth, email, password);
+            }
+        } catch (e: any) {
+            console.error("Auth error:", e);
+            let msg = e.message;
+            if (e.code === 'auth/invalid-credential') msg = "Credenciales incorrectas.";
+            if (e.code === 'auth/email-already-in-use') msg = "El correo ya está registrado.";
+            if (e.code === 'auth/weak-password') msg = "La contraseña es muy débil.";
+            setError(msg);
             setIsLoggingIn(false);
         }
     };
@@ -48,12 +103,16 @@ export default function LoginPage() {
             </div>
 
             <div className="w-full max-w-md bg-gray-900/50 backdrop-blur-md border border-gray-800 rounded-2xl p-8 shadow-xl relative z-10">
-                <div className="text-center mb-8">
-                    <h1 className="text-3xl font-bold bg-gradient-to-r from-green-400 to-blue-500 bg-clip-text text-transparent mb-2">
-                        FutStats
-                    </h1>
-                    <h2 className="text-xl text-white font-semibold">Bienvenido de nuevo</h2>
-                    <p className="text-gray-400 text-sm mt-1">Inicia sesión para gestionar tus estadísticas</p>
+                <div className="text-center mb-6">
+                    <div className="flex justify-center mb-4">
+                        <img src="/brand-logo.png" alt="FutStats Logo" className="h-16 w-auto" />
+                    </div>
+                    <h2 className="text-xl text-white font-semibold">
+                        {isSignUp ? "Crea tu cuenta" : "Bienvenido de nuevo"}
+                    </h2>
+                    <p className="text-gray-400 text-sm mt-1">
+                        {isSignUp ? "Únete para gestionar tus partidos" : "Inicia sesión para continuar"}
+                    </p>
                 </div>
 
                 {error && (
@@ -62,42 +121,103 @@ export default function LoginPage() {
                     </div>
                 )}
 
+                {/* Google Button */}
                 <button
                     onClick={handleGoogleLogin}
                     disabled={isLoggingIn}
-                    className="w-full flex items-center justify-center gap-3 bg-white hover:bg-gray-100 text-gray-900 font-medium py-3 px-4 rounded-xl transition-all shadow-lg hover:shadow-xl hover:scale-[1.02] disabled:opacity-70 disabled:cursor-not-allowed"
+                    className="w-full flex items-center justify-center gap-3 bg-white hover:bg-gray-100 text-gray-900 font-medium py-3 px-4 rounded-xl transition-all shadow-lg hover:shadow-xl hover:scale-[1.01] disabled:opacity-70 disabled:cursor-not-allowed mb-6"
                 >
                     {isLoggingIn ? (
-                        <span className="w-5 h-5 border-2 border-gray-900 border-t-transparent rounded-full animate-spin" />
+                        <div className="w-5 h-5 border-2 border-gray-900 border-t-transparent rounded-full animate-spin" />
                     ) : (
-                        <svg className="w-5 h-5" viewBox="0 0 24 24">
-                            <path
-                                fill="currentColor"
-                                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                            />
-                            <path
-                                fill="currentColor"
-                                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                            />
-                            <path
-                                fill="currentColor"
-                                d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-                            />
-                            <path
-                                fill="currentColor"
-                                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                            />
-                        </svg>
+                        <Chrome className="w-5 h-5" />
                     )}
-                    <span>Inicia sesión con Google</span>
-                    {!isLoggingIn && <ArrowRight className="w-4 h-4 text-gray-400 group-hover:text-gray-900 transition-colors" />}
+                    <span>Continuar con Google</span>
                 </button>
 
-                <div className="mt-8 text-center">
-                    <p className="text-gray-500 text-xs">
-                        © {new Date().getFullYear()} FutStats Pro. Todos los derechos reservados.
-                    </p>
+                <div className="relative mb-6">
+                    <div className="absolute inset-0 flex items-center">
+                        <div className="w-full border-t border-gray-800"></div>
+                    </div>
+                    <div className="relative flex justify-center text-xs uppercase">
+                        <span className="bg-gray-900 px-2 text-gray-500">O usa tu correo</span>
+                    </div>
                 </div>
+
+                {/* Email Form */}
+                <form onSubmit={handleEmailAuth} className="space-y-4">
+                    {isSignUp && (
+                        <div>
+                            <label className="block text-xs font-medium text-gray-400 mb-1 ml-1">Nombre Completo</label>
+                            <div className="relative">
+                                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                                <input
+                                    type="text"
+                                    value={fullName}
+                                    onChange={(e) => setFullName(e.target.value)}
+                                    className="w-full bg-gray-950/50 border border-gray-800 rounded-lg py-2.5 pl-10 pr-4 text-white focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition-all placeholder:text-gray-600 text-sm"
+                                    placeholder="Ej. Leo Messi"
+                                    required={isSignUp}
+                                />
+                            </div>
+                        </div>
+                    )}
+
+                    <div>
+                        <label className="block text-xs font-medium text-gray-400 mb-1 ml-1">Correo Electrónico</label>
+                        <div className="relative">
+                            <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                            <input
+                                type="email"
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                                className="w-full bg-gray-950/50 border border-gray-800 rounded-lg py-2.5 pl-10 pr-4 text-white focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition-all placeholder:text-gray-600 text-sm"
+                                placeholder="tu@email.com"
+                                required
+                            />
+                        </div>
+                    </div>
+
+                    <div>
+                        <label className="block text-xs font-medium text-gray-400 mb-1 ml-1">Contraseña</label>
+                        <div className="relative">
+                            <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+                            <input
+                                type="password"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                className="w-full bg-gray-950/50 border border-gray-800 rounded-lg py-2.5 pl-10 pr-4 text-white focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition-all placeholder:text-gray-600 text-sm"
+                                placeholder="••••••••"
+                                minLength={6}
+                                required
+                            />
+                        </div>
+                    </div>
+
+                    <button
+                        type="submit"
+                        disabled={isLoggingIn}
+                        className="w-full bg-gradient-to-r from-green-600 to-green-500 hover:from-green-500 hover:to-green-400 text-white font-semibold py-3 px-4 rounded-xl shadow-lg shadow-green-900/20 transition-all hover:scale-[1.01] disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2 mt-2"
+                    >
+                        {isLoggingIn && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                        {isSignUp ? "Crear Cuenta" : "Iniciar Sesión"}
+                    </button>
+                </form>
+
+                <div className="mt-6 text-center">
+                    <button
+                        onClick={() => { setIsSignUp(!isSignUp); setError(''); }}
+                        className="text-sm text-gray-400 hover:text-white transition-colors underline decoration-gray-700 underline-offset-4"
+                    >
+                        {isSignUp ? "¿Ya tienes cuenta? Inicia sesión" : "¿No tienes cuenta? Regístrate"}
+                    </button>
+                </div>
+            </div>
+
+            <div className="mt-8 text-center relative z-10">
+                <p className="text-gray-600 text-xs">
+                    © {new Date().getFullYear()} FutStats Pro
+                </p>
             </div>
         </div>
     );

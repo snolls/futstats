@@ -179,7 +179,26 @@ export default function UserCard({ user, currentUser, onDelete, onRoleUpdate, on
 
             {/* Sección de Información del Usuario (Nombre y Email) */}
             <h3 className="font-semibold text-white truncate w-full group-hover:text-blue-400 transition-colors">{user.displayName || "Sin Nombre"}</h3>
-            <p className="text-xs text-gray-500 mb-3 truncate w-full">{user.email}</p>
+            {user.nickname && (
+                <p className="text-sm text-yellow-500 font-bold italic mb-1">"{user.nickname}"</p>
+            )}
+            <p className="text-xs text-gray-500 mb-2 truncate w-full">{user.email}</p>
+
+            {/* Badges de Perfil Deportivo */}
+            {(user.position || user.strongFoot) && (
+                <div className="flex items-center gap-2 mb-3">
+                    {user.position && (
+                        <span className="px-2 py-0.5 rounded bg-blue-900/30 text-blue-400 text-[10px] font-bold border border-blue-900/50 uppercase">
+                            ⚽ {user.position}
+                        </span>
+                    )}
+                    {user.strongFoot && (
+                        <span className="px-2 py-0.5 rounded bg-gray-800 text-gray-300 text-[10px] font-bold border border-gray-700 uppercase">
+                            🦶 {user.strongFoot === 'left' ? 'Zurdo' : user.strongFoot === 'right' ? 'Diestro' : 'Ambi'}
+                        </span>
+                    )}
+                </div>
+            )}
 
             {/* Sección de Rol y Estado Financiero */}
             <div className="flex flex-wrap justify-center gap-2 mb-4">

@@ -3,7 +3,7 @@
 import { useRef, useState } from 'react';
 import { X, Calendar, Wallet, CheckCircle2, AlertTriangle, Plus, Minus, Loader2, History, RotateCcw, Pencil, Save, Users } from 'lucide-react';
 import { usePlayerDebts } from '@/hooks/usePlayerDebts';
-import { AppUserCustomData } from '@/types/user';
+import { AppUserCustomData, PLAYER_POSITIONS } from '@/types/user';
 import { db } from '@/lib/firebase';
 import { doc, updateDoc, getDocs, collection, query, where, arrayUnion, arrayRemove, writeBatch } from 'firebase/firestore';
 import { useAuthContext } from '@/context/AuthContext';
@@ -58,24 +58,34 @@ export default function UserDetailModal({ isOpen, onClose, user, onUpdate }: Use
         }
     };
 
+    // Validar y tipar explícitamente los datos que vienen del user
+    const [editNickname, setEditNickname] = useState(user.nickname || "");
+    const [editPosition, setEditPosition] = useState(user.position || "CM");
+    const [editStrongFoot, setEditStrongFoot] = useState<'right' | 'left' | 'ambidextrous'>(user.strongFoot as any || "right");
+
     const startEditingName = () => {
         setEditNameValue(user.displayName || "");
+        setEditNickname(user.nickname || "");
+        setEditPosition(user.position || "CM");
+        setEditStrongFoot(user.strongFoot as any || "right");
         setIsEditingName(true);
     };
 
     const saveName = async () => {
-        if (!editNameValue.trim() || editNameValue === user.displayName) {
-            setIsEditingName(false);
-            return;
-        }
+        // Permitimos guardar incluso si no cambia nada para simplificar, o validamos cambios
         setIsSavingName(true);
         try {
             const userRef = doc(db, "users", user.id);
-            await updateDoc(userRef, { displayName: editNameValue.trim() });
+            await updateDoc(userRef, {
+                displayName: editNameValue.trim(),
+                nickname: editNickname.trim(),
+                position: editPosition,
+                strongFoot: editStrongFoot
+            });
             onUpdate(); // Refresh parent
             setIsEditingName(false);
         } catch (error) {
-            console.error("Error updating name:", error);
+            console.error("Error updating profile:", error);
         } finally {
             setIsSavingName(false);
         }
@@ -307,24 +317,87 @@ export default function UserDetailModal({ isOpen, onClose, user, onUpdate }: Use
                         </div>
                         <div>
                             {isEditingName ? (
-                                <div className="flex items-center gap-2">
-                                    <input
-                                        value={editNameValue}
-                                        onChange={(e) => setEditNameValue(e.target.value)}
-                                        className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-white text-sm focus:border-blue-500 outline-none w-40"
-                                        autoFocus
-                                    />
-                                    <button onClick={saveName} disabled={isSavingName} className="text-emerald-500 hover:text-emerald-400">
-                                        {isSavingName ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                                    </button>
+                                <div className="space-y-3 bg-slate-950 p-4 rounded-xl border border-slate-700 mt-2">
+                                    <h4 className="text-xs font-bold text-slate-500 uppercase">Editar Perfil</h4>
+
+                                    {/* Nombre Real */}
+                                    <div>
+                                        <label className="text-[10px] text-slate-400">Nombre Real</label>
+                                        <input
+                                            value={editNameValue}
+                                            onChange={(e) => setEditNameValue(e.target.value)}
+                                            className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-white text-sm focus:border-blue-500 outline-none"
+                                            placeholder="Nombre Completo"
+                                        />
+                                    </div>
+
+                                    {/* Apodo */}
+                                    <div>
+                                        <label className="text-[10px] text-slate-400">Apodo</label>
+                                        <input
+                                            value={editNickname}
+                                            onChange={(e) => setEditNickname(e.target.value)}
+                                            className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-white text-sm focus:border-blue-500 outline-none"
+                                            placeholder="Ej. La Pulga"
+                                        />
+                                    </div>
+
+                                    {/* Posición y Pie */}
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <div>
+                                            <label className="text-[10px] text-slate-400">Posición</label>
+                                            <select
+                                                value={editPosition}
+                                                onChange={(e) => setEditPosition(e.target.value)}
+                                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-white text-sm focus:border-blue-500 outline-none appearance-none"
+                                            >
+                                                {Object.entries(PLAYER_POSITIONS).map(([key, label]) => (
+                                                    <option key={key} value={key}>{key} - {label}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] text-slate-400">Pierna</label>
+                                            <select
+                                                value={editStrongFoot}
+                                                onChange={(e) => setEditStrongFoot(e.target.value as any)}
+                                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-white text-sm focus:border-blue-500 outline-none appearance-none"
+                                            >
+                                                <option value="right">Diestro</option>
+                                                <option value="left">Zurdo</option>
+                                                <option value="ambidextrous">Ambidextro</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex justify-end gap-2 pt-2">
+                                        <button onClick={() => setIsEditingName(false)} className="px-3 py-1 text-xs text-slate-400 hover:text-white">Cancelar</button>
+                                        <button
+                                            onClick={saveName}
+                                            disabled={isSavingName}
+                                            className="px-4 py-1.5 bg-green-600 hover:bg-green-500 text-white text-xs font-bold rounded flex items-center gap-1"
+                                        >
+                                            {isSavingName ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                                            Guardar Cambios
+                                        </button>
+                                    </div>
                                 </div>
                             ) : (
-                                <h3 className="text-lg font-bold text-white flex items-center gap-2 group">
-                                    {user.displayName}
-                                    <button onClick={startEditingName} className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-500 hover:text-blue-400">
-                                        <Pencil className="w-3 h-3" />
-                                    </button>
-                                </h3>
+                                <div className="group">
+                                    <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                                        {user.displayName}
+                                        <button onClick={startEditingName} className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-500 hover:text-blue-400 p-1">
+                                            <Pencil className="w-3 h-3" />
+                                        </button>
+                                    </h3>
+                                    {user.nickname && <p className="text-sm text-yellow-500 font-medium italic">"{user.nickname}"</p>}
+                                    {(user.position || user.strongFoot) && (
+                                        <div className="flex items-center gap-2 mt-1">
+                                            {user.position && <span className="text-[10px] bg-blue-900/30 text-blue-300 px-1.5 py-0.5 rounded border border-blue-900/50">⚽ {user.position}</span>}
+                                            {user.strongFoot && <span className="text-[10px] bg-gray-800 text-gray-400 px-1.5 py-0.5 rounded border border-gray-700">🦶 {user.strongFoot === 'left' ? 'L' : user.strongFoot === 'right' ? 'R' : 'LR'}</span>}
+                                        </div>
+                                    )}
+                                </div>
                             )}
 
                             <div className="flex items-center gap-2">

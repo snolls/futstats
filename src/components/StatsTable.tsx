@@ -114,8 +114,12 @@ export default function StatsTable({ selectedGroupId }: StatsTableProps) {
                     if (!pid) return;
 
                     const isGuest = !!stat.isGuest;
+
+                    // Filter: If it's a registered user (not guest) and not found in key-value map, it's a deleted user. Skip.
+                    if (!isGuest && !userMap[pid]) return;
+
                     // Use guest display name or map from registered users
-                    const displayName = isGuest ? (stat.displayName || 'Invitado') : (userMap[pid] || 'Desconocido');
+                    const displayName = isGuest ? (stat.displayName || 'Invitado') : userMap[pid];
 
                     if (!aggregation[pid]) {
                         aggregation[pid] = {
