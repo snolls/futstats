@@ -1,9 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { X, Calendar, Wallet, CheckCircle2, History, AlertTriangle, Plus, Minus, Loader2 } from 'lucide-react';
-import { collection, query, where, getDocs, doc, updateDoc, increment, getDoc, Timestamp } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { useState } from 'react';
+import { X, Calendar, Wallet, CheckCircle2, AlertTriangle, Plus, Minus, Loader2, History, RotateCcw } from 'lucide-react';
+import { usePlayerDebts } from '@/hooks/usePlayerDebts';
 import { AppUserCustomData } from '@/types/user';
 
 interface UserDetailModalProps {
@@ -13,120 +12,61 @@ interface UserDetailModalProps {
     onUpdate: () => void; // Trigger refresh in parent
 }
 
-interface PendingMatchItem {
-    statId: string;
-    matchId: string;
-    date: Date;
-    price: number;
-    matchDateString: string;
-}
-
 export default function UserDetailModal({ isOpen, onClose, user, onUpdate }: UserDetailModalProps) {
-    const [pendingMatches, setPendingMatches] = useState<PendingMatchItem[]>([]);
-    const [loading, setLoading] = useState(false);
+    const {
+        pendingMatches,
+        paidMatches,
+        totalDebt,
+        matchesDebt,
+        manualDebt,
+        loading,
+        toggleMatchPayment,
+        updateManualDebt,
+        processSmartPayment
+    } = usePlayerDebts(user?.id);
+
+    const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending');
     const [processingId, setProcessingId] = useState<string | null>(null);
     const [manualDebtInput, setManualDebtInput] = useState("");
 
-    // Fetch Pending Matches Details
-    useEffect(() => {
-        if (isOpen && user) {
-            fetchPendingDetails();
-        }
-    }, [isOpen, user]);
+    // Estado para el diálogo de confirmación de pago inteligente
+    const [showPaymentConfirm, setShowPaymentConfirm] = useState(false);
+    const [pendingPaymentAmount, setPendingPaymentAmount] = useState(0);
 
-    const fetchPendingDetails = async () => {
-        setLoading(true);
-        try {
-            // 1. Get Pending Stats
-            const q = query(
-                collection(db, "match_stats"),
-                where("userId", "==", user.id),
-                where("paymentStatus", "==", "PENDING")
-            );
-            const snap = await getDocs(q);
-
-            if (snap.empty) {
-                setPendingMatches([]);
-                setLoading(false);
-                return;
-            }
-
-            const stats = snap.docs.map(d => ({ id: d.id, ...d.data() } as any));
-            const matchIds = Array.from(new Set(stats.map((s: any) => s.matchId as string)));
-
-            // 2. Fetch Match Details (Price & Date)
-            // We can't use 'in' query efficiently if > 10, so let's do parallel getDoc for simplicity or chunks.
-            // Given a user won't have THAT many pending matches, Promise.all is fine.
-            const matchesData: Record<string, { date: Date, price: number }> = {};
-
-            await Promise.all(matchIds.map(async (mid) => {
-                const mDoc = await getDoc(doc(db, "matches", mid));
-                if (mDoc.exists()) {
-                    const d = mDoc.data();
-                    matchesData[mid] = {
-                        date: (d.date as Timestamp).toDate(),
-                        price: d.pricePerPlayer || 0
-                    };
-                }
-            }));
-
-            // 3. Combine
-            const combined: PendingMatchItem[] = stats.map((s: any) => {
-                const mData = matchesData[s.matchId];
-                if (!mData) return null;
-                return {
-                    statId: s.id,
-                    matchId: s.matchId,
-                    date: mData.date,
-                    price: mData.price,
-                    matchDateString: mData.date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
-                };
-            }).filter(Boolean) as PendingMatchItem[];
-
-            // Sort by date desc
-            combined.sort((a, b) => b.date.getTime() - a.date.getTime());
-
-            setPendingMatches(combined);
-
-        } catch (error) {
-            console.error("Error fetching pending details:", error);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    const handleMarkAsPaid = async (statId: string) => {
+    const handleTogglePayment = async (statId: string, currentStatus: 'PENDING' | 'PAID') => {
         setProcessingId(statId);
         try {
-            await updateDoc(doc(db, "match_stats", statId), {
-                paymentStatus: 'PAID'
-            });
-            // Remove from list locally
-            setPendingMatches(prev => prev.filter(p => p.statId !== statId));
-            onUpdate(); // Update parent total
+            await toggleMatchPayment(statId, currentStatus);
+            onUpdate();
         } catch (error) {
-            console.error("Error updating payment:", error);
+            console.error("Error toggling payment:", error);
         } finally {
             setProcessingId(null);
         }
     };
 
-    const handleManualDebtUpdate = async (type: 'add' | 'subtract') => {
+    const initiateManualUpdate = (type: 'add' | 'subtract') => {
         const val = parseFloat(manualDebtInput);
         if (isNaN(val) || val <= 0) return;
 
+        if (type === 'subtract' && pendingMatches.length > 0) {
+            // INTERCEPTAR: Si intenta cancelar deuda (pagar) y tiene partidos pendientes
+            setPendingPaymentAmount(val);
+            setShowPaymentConfirm(true);
+        } else {
+            // Flujo normal (Añadir deuda o Pagar sin partidos pendientes)
+            executeManualUpdate(type, val);
+        }
+    };
+
+    const executeManualUpdate = async (type: 'add' | 'subtract', amount: number) => {
         setProcessingId('manual');
         try {
-            const adjustment = type === 'add' ? val : -val;
-            await updateDoc(doc(db, "users", user.id), {
-                manualDebt: increment(adjustment)
-            });
+            const adjustment = type === 'add' ? amount : -amount;
+            await updateManualDebt(adjustment);
             onUpdate();
             setManualDebtInput("");
-            // Optimistic update of prop? No, onUpdate triggers parent re-fetch which re-renders this modal? 
-            // Actually parent re-render might close modal if we aren't careful? 
-            // No, the modal isOpen is controlled by parent state. Re-render implies 'user' prop updates.
-            // So we wait for prop update.
+            setShowPaymentConfirm(false);
         } catch (error) {
             console.error("Error adjusting manual debt:", error);
         } finally {
@@ -134,12 +74,64 @@ export default function UserDetailModal({ isOpen, onClose, user, onUpdate }: Use
         }
     };
 
+    const executeSmartPayment = async () => {
+        setProcessingId('smart-payment');
+        try {
+            await processSmartPayment(pendingPaymentAmount); // La función del hook hace la magia
+            onUpdate();
+            setManualDebtInput("");
+            setShowPaymentConfirm(false);
+        } catch (error) {
+            console.error("Error processing smart payment:", error);
+        } finally {
+            setProcessingId(null);
+        }
+    };
+
     if (!isOpen) return null;
 
-    const totalPending = pendingMatches.reduce((acc, curr) => acc + curr.price, 0);
-    const manualDebt = user.manualDebt || 0;
-    const grandTotal = totalPending + manualDebt;
-    const isClean = grandTotal === 0 && pendingMatches.length === 0;
+    const isDebt = totalDebt > 0.01;
+    const isCredit = totalDebt < -0.01;
+    const isClean = !isDebt && !isCredit;
+
+    // Configuración de estilo según estado
+    let statusConfig = {
+        bg: 'bg-emerald-500/10',
+        border: 'border-emerald-500/20',
+        iconBg: 'bg-emerald-500/20',
+        iconColor: 'text-emerald-500',
+        titleColor: 'text-emerald-400',
+        amountColor: 'text-emerald-400',
+        icon: CheckCircle2,
+        title: 'Todo en orden',
+        desc: 'Sin deudas activas'
+    };
+
+    if (isDebt) {
+        statusConfig = {
+            bg: 'bg-red-500/10',
+            border: 'border-red-500/20',
+            iconBg: 'bg-red-500/20',
+            iconColor: 'text-red-500',
+            titleColor: 'text-red-400',
+            amountColor: 'text-red-400',
+            icon: AlertTriangle,
+            title: 'Pagos Pendientes',
+            desc: 'Tiene pagos o multas pendientes'
+        };
+    } else if (isCredit) {
+        statusConfig = {
+            bg: 'bg-emerald-500/10',
+            border: 'border-emerald-500/20',
+            iconBg: 'bg-emerald-500/20',
+            iconColor: 'text-emerald-500',
+            titleColor: 'text-emerald-400',
+            amountColor: 'text-emerald-400',
+            icon: Wallet,
+            title: 'Saldo a Favor',
+            desc: 'El usuario tiene crédito disponible'
+        };
+    }
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
@@ -149,11 +141,74 @@ export default function UserDetailModal({ isOpen, onClose, user, onUpdate }: Use
             />
 
             <div className="relative w-[95vw] max-w-2xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl flex flex-col max-h-[85vh]">
+
+                {/* OVERLAY DE CONFIRMACIÓN DE PAGO */}
+                {showPaymentConfirm && (
+                    <div className="absolute inset-0 z-50 bg-black/90 backdrop-blur-sm flex items-center justify-center p-6 rounded-2xl animate-in fade-in duration-200">
+                        <div className="bg-slate-900 border border-slate-700 p-6 rounded-xl max-w-md w-full shadow-2xl space-y-4">
+                            <div className="flex items-center gap-3 text-amber-500 mb-2">
+                                <AlertTriangle className="w-8 h-8" />
+                                <h3 className="text-xl font-bold text-white">Atención</h3>
+                            </div>
+
+                            <p className="text-slate-300 text-sm leading-relaxed">
+                                El usuario tiene <strong className="text-white">{pendingMatches.length} partidos pendientes</strong> por un valor de <strong className="text-red-400">{matchesDebt.toFixed(2)}€</strong>.
+                            </p>
+
+                            <div className="bg-slate-950 p-4 rounded-lg border border-slate-800">
+                                <p className="text-xs text-slate-400 mb-1">Importe a pagar:</p>
+                                <p className="text-2xl font-bold text-emerald-400">{pendingPaymentAmount.toFixed(2)}€</p>
+                            </div>
+
+                            <p className="text-slate-400 text-xs">
+                                ¿Cómo quieres aplicar este pago?
+                            </p>
+
+                            <div className="grid gap-3">
+                                <button
+                                    onClick={executeSmartPayment}
+                                    disabled={processingId === 'smart-payment'}
+                                    className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg flex items-center justify-center gap-2 transition-all shadow-lg shadow-blue-900/20 active:scale-95 disabled:opacity-50"
+                                >
+                                    {processingId === 'smart-payment' ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
+                                    <div className="text-left">
+                                        <div className="text-sm">Saldar Partidos Antiguos</div>
+                                        <div className="text-[10px] text-blue-200 font-normal">Prioriza partidos y el resto a cuenta manual</div>
+                                    </div>
+                                </button>
+
+                                <button
+                                    onClick={() => executeManualUpdate('subtract', pendingPaymentAmount)}
+                                    disabled={processingId === 'manual'}
+                                    className="w-full py-3 px-4 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-semibold rounded-lg flex items-center justify-center gap-2 transition-all border border-slate-700 disabled:opacity-50"
+                                >
+                                    {processingId === 'manual' ? <Loader2 className="w-5 h-5 animate-spin" /> : <Wallet className="w-5 h-5 text-slate-500" />}
+                                    <div className="text-left">
+                                        <div className="text-sm">Solo Ajuste Manual</div>
+                                        <div className="text-[10px] text-slate-500 font-normal">Ignorar partidos pendientes</div>
+                                    </div>
+                                </button>
+                            </div>
+
+                            <button
+                                onClick={() => setShowPaymentConfirm(false)}
+                                className="w-full mt-2 text-slate-500 hover:text-white text-xs py-2 transition-colors"
+                            >
+                                Cancelar operación
+                            </button>
+                        </div>
+                    </div>
+                )}
+
                 {/* Header */}
                 <div className="flex items-center justify-between p-6 border-b border-slate-800 shrink-0">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-sm font-bold text-slate-400 border border-slate-700">
-                            {user.displayName ? user.displayName.slice(0, 2).toUpperCase() : "??"}
+                            {user.photoURL ? (
+                                <img src={user.photoURL} alt={user.displayName || 'User'} className="w-full h-full rounded-full object-cover" />
+                            ) : (
+                                <span>{user.displayName ? user.displayName.slice(0, 2).toUpperCase() : "??"}</span>
+                            )}
                         </div>
                         <div>
                             <h3 className="text-lg font-bold text-white">{user.displayName}</h3>
@@ -167,77 +222,148 @@ export default function UserDetailModal({ isOpen, onClose, user, onUpdate }: Use
 
                 <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
 
-                    {/* Status Card */}
-                    <div className={`p-4 rounded-xl border flex items-center justify-between ${isClean ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
+                    {/* Ficha de Estado Dinámica */}
+                    <div className={`p-4 rounded-xl border flex items-center justify-between mb-6 ${statusConfig.bg} ${statusConfig.border}`}>
                         <div className="flex items-center gap-3">
-                            <div className={`p-2 rounded-full ${isClean ? 'bg-emerald-500/20 text-emerald-500' : 'bg-red-500/20 text-red-500'}`}>
-                                {isClean ? <CheckCircle2 className="w-6 h-6" /> : <AlertTriangle className="w-6 h-6" />}
+                            <div className={`p-2 rounded-full ${statusConfig.iconBg} ${statusConfig.iconColor}`}>
+                                <statusConfig.icon className="w-6 h-6" />
                             </div>
                             <div>
-                                <h4 className={`font-bold ${isClean ? 'text-emerald-400' : 'text-red-400'}`}>
-                                    {isClean ? 'Todo en orden' : 'Pagos Pendientes'}
+                                <h4 className={`font-bold ${statusConfig.titleColor}`}>
+                                    {statusConfig.title}
                                 </h4>
-                                <p className="text-xs text-slate-400">Estado de cuenta actual</p>
+                                <p className="text-xs text-slate-400">
+                                    {statusConfig.desc}
+                                </p>
                             </div>
                         </div>
                         <div className="text-right">
-                            <div className={`text-2xl font-black ${isClean ? 'text-emerald-400' : 'text-red-400'}`}>
-                                {grandTotal > 0 ? '-' : ''}{Math.abs(grandTotal).toFixed(2)}€
+                            <div className={`text-2xl font-black ${statusConfig.amountColor}`}>
+                                {isDebt ? '-' : isCredit ? '+' : ''}{Math.abs(totalDebt).toFixed(2)}€
                             </div>
-                            <div className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Deuda Total</div>
+                            <div className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">
+                                Total: {matchesDebt.toFixed(2)}€ Partidos + {manualDebt.toFixed(2)}€ Manual
+                            </div>
                         </div>
                     </div>
 
-                    {/* Pending Matches Section */}
-                    <div className="space-y-3">
-                        <h4 className="text-sm font-bold text-slate-300 flex items-center gap-2">
-                            <Calendar className="w-4 h-4 text-blue-400" />
-                            Partidos Pendientes
-                        </h4>
+                    {/* Sección de Partidos con Pestañas */}
+                    <div className="space-y-4">
+                        <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                            <h4 className="text-sm font-bold text-slate-300 flex items-center gap-2">
+                                <Calendar className="w-4 h-4 text-blue-400" />
+                                Gestión de Partidos
+                            </h4>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => setActiveTab('pending')}
+                                    className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-colors ${activeTab === 'pending' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+                                >
+                                    Pendientes ({pendingMatches.length})
+                                </button>
+                                <button
+                                    onClick={() => setActiveTab('history')}
+                                    className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-colors ${activeTab === 'history' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
+                                >
+                                    Historial
+                                </button>
+                            </div>
+                        </div>
 
                         {loading ? (
-                            <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 animate-spin text-blue-500" /></div>
-                        ) : pendingMatches.length === 0 ? (
-                            <div className="text-center py-4 border border-dashed border-slate-800 rounded-xl bg-slate-900/50 text-slate-500 text-sm">
-                                No hay partidos sin pagar.
-                            </div>
+                            <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-blue-500" /></div>
+                        ) : activeTab === 'pending' ? (
+                            // LISTA DE PENDIENTES
+                            pendingMatches.length === 0 ? (
+                                <div className="text-center py-6 border border-dashed border-slate-800 rounded-xl bg-slate-900/50 text-slate-500 text-sm">
+                                    No hay partidos sin pagar.
+                                </div>
+                            ) : (
+                                <div className="space-y-2 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
+                                    {pendingMatches.map(match => (
+                                        <div key={match.statId} className="flex items-center justify-between p-3 bg-red-950/20 border border-red-900/30 rounded-lg hover:border-red-700/50 transition-colors">
+                                            <div className="flex flex-col">
+                                                <span className="text-sm font-medium text-white">{match.matchDateString}</span>
+                                                <span className="text-xs text-red-400">Pendiente de pago</span>
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                                <span className="font-bold text-red-400">-{match.price.toFixed(2)}€</span>
+                                                <button
+                                                    onClick={() => handleTogglePayment(match.statId, 'PENDING')}
+                                                    disabled={processingId === match.statId}
+                                                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded shadow-lg shadow-emerald-900/20 transition-all active:scale-95 disabled:opacity-50 flex items-center gap-1"
+                                                >
+                                                    {processingId === match.statId ? <Loader2 className="w-3 h-3 animate-spin" /> : 'SALDAR'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )
                         ) : (
-                            <div className="space-y-2">
-                                {pendingMatches.map(match => (
-                                    <div key={match.statId} className="flex items-center justify-between p-3 bg-slate-950 border border-slate-800 rounded-lg hover:border-slate-700 transition-colors">
-                                        <div className="flex flex-col">
-                                            <span className="text-sm font-medium text-white">{match.matchDateString}</span>
-                                            <span className="text-xs text-slate-500">Precio partido</span>
+                            // LISTA DE HISTORIAL (PAGADOS)
+                            paidMatches.length === 0 ? (
+                                <div className="text-center py-6 border border-dashed border-slate-800 rounded-xl bg-slate-900/50 text-slate-500 text-sm">
+                                    No hay historial reciente.
+                                </div>
+                            ) : (
+                                <div className="space-y-2 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
+                                    {paidMatches.map(match => (
+                                        <div key={match.statId} className="flex items-center justify-between p-3 bg-slate-950 border border-slate-800 rounded-lg opacity-75 hover:opacity-100 transition-opacity">
+                                            <div className="flex flex-col">
+                                                <span className="text-sm font-medium text-slate-400 decoration-slate-600">{match.matchDateString}</span>
+                                                <span className="text-xs text-emerald-500 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Pagado</span>
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                                <span className="font-bold text-slate-500 line-through">{match.price.toFixed(2)}€</span>
+                                                <button
+                                                    onClick={() => handleTogglePayment(match.statId, 'PAID')}
+                                                    disabled={processingId === match.statId}
+                                                    className="px-3 py-1.5 bg-slate-800 hover:bg-amber-900/40 text-slate-400 hover:text-amber-500 text-xs font-bold rounded border border-slate-700 hover:border-amber-900/50 transition-all active:scale-95 disabled:opacity-50 flex items-center gap-1"
+                                                    title="Marcar como NO pagado"
+                                                >
+                                                    {processingId === match.statId ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
+                                                    DESHACER
+                                                </button>
+                                            </div>
                                         </div>
-                                        <div className="flex items-center gap-3">
-                                            <span className="font-bold text-red-400">-{match.price}€</span>
-                                            <button
-                                                onClick={() => handleMarkAsPaid(match.statId)}
-                                                disabled={processingId === match.statId}
-                                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded shadow-lg shadow-emerald-900/20 transition-all active:scale-95 disabled:opacity-50"
-                                            >
-                                                {processingId === match.statId ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Saldar'}
-                                            </button>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
+                                    ))}
+                                </div>
+                            )
                         )}
                     </div>
 
-                    {/* Manual Debt Section */}
+                    {/* Sección de Deuda Manual */}
                     <div className="space-y-3 pt-4 border-t border-slate-800">
                         <div className="flex items-center justify-between">
                             <h4 className="text-sm font-bold text-slate-300 flex items-center gap-2">
                                 <Wallet className="w-4 h-4 text-amber-400" />
                                 Ajustes Manuales / Multas
                             </h4>
-                            <span className={`text-xs font-bold px-2 py-1 rounded border ${manualDebt !== 0 ? 'bg-slate-800 border-slate-700 text-white' : 'border-transparent text-slate-600'}`}>
-                                Saldo manual: {manualDebt > 0 ? '-' : '+'}{Math.abs(manualDebt)}€
-                            </span>
+                            {manualDebt < 0 ? (
+                                <span className="text-xs font-bold px-2 py-1 rounded border bg-emerald-500/10 border-emerald-500/20 text-emerald-400">
+                                    Saldo disponible: {Math.abs(manualDebt).toFixed(2)}€
+                                </span>
+                            ) : (
+                                <span className={`text-xs font-bold px-2 py-1 rounded border ${manualDebt > 0 ? 'bg-slate-800 border-slate-700 text-white' : 'border-transparent text-slate-600'}`}>
+                                    Saldo: {manualDebt > 0 ? '-' : ''}{Math.abs(manualDebt).toFixed(2)}€
+                                </span>
+                            )}
                         </div>
 
                         <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-4">
+
+                            {/* ALERTA DE SEGURIDAD PARA DEUDA PENDIENTE */}
+                            {matchesDebt > 0 && (
+                                <div className="flex items-start gap-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-200 text-xs">
+                                    <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                                    <p>
+                                        El usuario tiene <strong>{matchesDebt.toFixed(2)}€</strong> en partidos pendientes.
+                                        Usa el botón "Restar / Pagar" para decidir cómo aplicar el dinero.
+                                    </p>
+                                </div>
+                            )}
+
                             <div className="flex gap-2">
                                 <input
                                     type="number"
@@ -249,7 +375,7 @@ export default function UserDetailModal({ isOpen, onClose, user, onUpdate }: Use
                             </div>
                             <div className="grid grid-cols-2 gap-3">
                                 <button
-                                    onClick={() => handleManualDebtUpdate('add')} // Increases Debt (Negative balance technically, but displayed as Debt > 0)
+                                    onClick={() => initiateManualUpdate('add')}
                                     disabled={!manualDebtInput || processingId === 'manual'}
                                     className="flex items-center justify-center gap-2 py-2 bg-red-900/20 hover:bg-red-900/40 text-red-500 border border-red-900/30 rounded-lg text-xs font-bold transition-all disabled:opacity-50"
                                 >
@@ -257,11 +383,11 @@ export default function UserDetailModal({ isOpen, onClose, user, onUpdate }: Use
                                     Añadir Deuda
                                 </button>
                                 <button
-                                    onClick={() => handleManualDebtUpdate('subtract')} // Reduces Debt
-                                    disabled={!manualDebtInput || processingId === 'manual'}
+                                    onClick={() => initiateManualUpdate('subtract')}
+                                    disabled={!manualDebtInput || processingId === 'manual' || processingId === 'smart-payment'}
                                     className="flex items-center justify-center gap-2 py-2 bg-emerald-900/20 hover:bg-emerald-900/40 text-emerald-500 border border-emerald-900/30 rounded-lg text-xs font-bold transition-all disabled:opacity-50"
                                 >
-                                    {processingId === 'manual' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Minus className="w-3 h-3" />}
+                                    {processingId === 'manual' || processingId === 'smart-payment' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Minus className="w-3 h-3" />}
                                     Restar / Pagar
                                 </button>
                             </div>

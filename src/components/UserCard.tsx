@@ -120,7 +120,8 @@ export default function UserCard({ user, currentUser, onDelete, onRoleUpdate, on
 
     // Lógica de Deuda
     const debt = user.totalDebt || 0;
-    const isDebtor = debt > 0;
+    const isDebtor = debt > 0.01;
+    const isCreditor = debt < -0.01;
 
     return (
         <div
@@ -129,13 +130,21 @@ export default function UserCard({ user, currentUser, onDelete, onRoleUpdate, on
                 "rounded-xl p-5 flex flex-col items-center text-center transition-all group relative border cursor-pointer",
                 isDebtor
                     ? "bg-red-950/10 border-red-500/50 shadow-lg shadow-red-900/10 hover:border-red-400"
-                    : "bg-gray-950 border-gray-800 hover:border-gray-500"
+                    : isCreditor
+                        ? "bg-emerald-950/10 border-emerald-500/50 shadow-[0_0_15px_-3px_rgba(16,185,129,0.3)] hover:border-emerald-400"
+                        : "bg-gray-950 border-gray-800 hover:border-gray-500"
             )}>
-            {/* Sección de Badge de Deuda */}
+            {/* Sección de Badge de Deuda / Saldo */}
             {isDebtor && (
                 <div className="absolute top-3 right-3 flex items-center gap-1 bg-red-500 text-black px-2 py-0.5 rounded text-[10px] font-bold shadow-lg shadow-red-500/20">
                     <AlertTriangle className="w-3 h-3" />
                     DEUDA
+                </div>
+            )}
+            {isCreditor && (
+                <div className="absolute top-3 right-3 flex items-center gap-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded text-[10px] font-bold shadow-lg shadow-emerald-500/10">
+                    <Banknote className="w-3 h-3" />
+                    SALDO
                 </div>
             )}
 

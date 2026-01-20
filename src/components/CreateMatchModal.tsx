@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { X, Calendar, Euro, Users, AlertTriangle, Loader2, Trophy, Shield, UserPlus } from "lucide-react";
-import { addDoc, collection, serverTimestamp, getDocs, query, where, writeBatch, doc, documentId } from "firebase/firestore";
+import { addDoc, collection, serverTimestamp, getDocs, query, where, writeBatch, doc, documentId, increment } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuthContext } from "@/context/AuthContext";
 
@@ -11,6 +11,8 @@ interface UserData {
     displayName: string;
     email: string;
     photoURL?: string;
+    debt?: number;
+    manualDebt?: number;
 }
 
 interface GroupData {
@@ -233,20 +235,58 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
 
             // 2. Create Match Stats
             const batch = writeBatch(db);
+            let autoPaidCount = 0;
 
             // Regular Users
             selectedUserIds.forEach(userId => {
                 const statsRef = doc(collection(db, "match_stats"));
-                batch.set(statsRef, {
-                    matchId: matchRef.id,
-                    userId: userId,
-                    paymentStatus: "PENDING",
-                    goals: 0,
-                    assists: 0,
-                    team: "PENDING",
-                    createdAt: serverTimestamp(),
-                });
+
+                // Lógica de Cobro Automático (Smart Pay)
+                const userObj = availableUsers.find(u => u.id === userId);
+                const currentDebt = userObj?.debt ?? 0; // Si es negativo, es SALDO A FAVOR
+                const priceNum = Number(price);
+
+                // Si tiene suficiente crédito (ej: debt es -10 y el precio es 5. -10 <= -5 es TRUE)
+                const canPayWithCredit = currentDebt <= -priceNum;
+
+                if (canPayWithCredit) {
+                    // 1. Marcar partido como PAGADO
+                    batch.set(statsRef, {
+                        matchId: matchRef.id,
+                        userId: userId,
+                        paymentStatus: "PAID", // Auto-pagado
+                        goals: 0,
+                        assists: 0,
+                        team: "PENDING",
+                        createdAt: serverTimestamp(),
+                    });
+
+                    // 2. Descontar del saldo (Incrementar deuda negativa acerca a cero)
+                    // Ej: Deuda -10. Increment(5) -> -5.
+                    const userRef = doc(db, "users", userId);
+                    batch.update(userRef, {
+                        debt: increment(priceNum),
+                        manualDebt: increment(priceNum)
+                    });
+
+                    autoPaidCount++;
+                } else {
+                    // Comportamiento normal (Pendiente)
+                    batch.set(statsRef, {
+                        matchId: matchRef.id,
+                        userId: userId,
+                        paymentStatus: "PENDING",
+                        goals: 0,
+                        assists: 0,
+                        team: "PENDING",
+                        createdAt: serverTimestamp(),
+                    });
+                }
             });
+
+            if (autoPaidCount > 0) {
+                console.log(`✅ Se ha cobrado automáticamente a ${autoPaidCount} jugadores usando su saldo a favor.`);
+            }
 
             // Guests
             guests.forEach(guest => {
