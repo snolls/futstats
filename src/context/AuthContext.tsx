@@ -1,7 +1,7 @@
 "use client";
 import { createContext, useContext, useEffect, useState } from "react";
 import { onAuthStateChanged, User } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, onSnapshot } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 
 interface AuthContextType {
@@ -18,33 +18,43 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+        let unsubscribeProfile: (() => void) | null = null;
+
+        const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
             setUser(currentUser);
 
-            if (currentUser) {
-                // Forzamos la lectura del rol en la base de datos
-                try {
-                    const userDoc = await getDoc(doc(db, "users", currentUser.uid));
-                    if (userDoc.exists()) {
-                        const data = userDoc.data();
-                        console.log("Rol encontrado en DB:", data.role);
-                        setUserData(data);
-                    } else {
-                        // Si el documento no existe, reseteamos userData
-                        setUserData(null);
-                    }
-                } catch (error) {
-                    console.error("Error leyendo rol:", error);
-                    setUserData(null);
-                }
-            } else {
-                setUserData(null);
+            // Clean up previous listener if user changed (or logged out)
+            if (unsubscribeProfile) {
+                unsubscribeProfile();
+                unsubscribeProfile = null;
             }
 
-            setLoading(false);
+            if (currentUser) {
+                // Subscribe to real-time changes
+                const userRef = doc(db, "users", currentUser.uid);
+                unsubscribeProfile = onSnapshot(userRef, (docSnap) => {
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+                        console.log("Perfil actualizado en tiempo real:", data.role);
+                        setUserData(data);
+                    } else {
+                        setUserData(null);
+                    }
+                    setLoading(false);
+                }, (error) => {
+                    console.error("Error en listener de perfil:", error);
+                    setLoading(false);
+                });
+            } else {
+                setUserData(null);
+                setLoading(false);
+            }
         });
 
-        return () => unsubscribe();
+        return () => {
+            unsubscribeAuth();
+            if (unsubscribeProfile) unsubscribeProfile();
+        };
     }, []);
 
     return (

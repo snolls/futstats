@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { X, Users, Loader2, Save, Trash2, Shield, ShieldCheck, UserPlus, Search } from "lucide-react";
-import { doc, updateDoc, deleteDoc, getDocs, collection, query, where, arrayUnion, arrayRemove, limit, writeBatch } from "firebase/firestore";
+import { doc, updateDoc, deleteDoc, getDocs, getDoc, collection, query, where, arrayUnion, arrayRemove, limit, writeBatch } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuthContext } from "@/context/AuthContext";
 
@@ -298,7 +298,7 @@ export default function EditGroupModal({ isOpen, onClose, groupData, onUpdate }:
     const handleDeleteGroup = async () => {
         if (!groupData) return;
 
-        // Security Check: Only Superadmin or Admin can delete (UI should hide button otherwise, but double check)
+        // Security Check
         const isSuperAdmin = userData?.role === 'superadmin';
         const isAdmin = groupData.adminIds.includes(user?.uid || '');
 
@@ -307,12 +307,10 @@ export default function EditGroupModal({ isOpen, onClose, groupData, onUpdate }:
             return;
         }
 
-        // Confirmation
         if (!confirm("¿Estás SEGURO de que quieres eliminar este grupo? Esta acción borrará el grupo para todos los miembros.")) {
             return;
         }
 
-        // Double Confirmation
         if (!confirm("Esta acción es IRREVERSIBLE. ¿Realmente quieres eliminarlo?")) {
             return;
         }
@@ -322,34 +320,46 @@ export default function EditGroupModal({ isOpen, onClose, groupData, onUpdate }:
             const batch = writeBatch(db);
             const groupId = groupData.id;
 
-            // 1. Delete Group Document
+            // 1. Fetch Fresh Group Data (Ensure we catch all members)
             const groupRef = doc(db, "groups", groupId);
-            batch.delete(groupRef);
+            const groupSnap = await getDoc(groupRef);
 
-            // 2. Delete Group Requests
-            const requestsQ = query(collection(db, "group_requests"), where("groupId", "==", groupId));
-            const requestsSnap = await getDocs(requestsQ);
-            requestsSnap.forEach(reqDoc => {
-                batch.delete(reqDoc.ref);
-            });
+            if (!groupSnap.exists()) {
+                onUpdate();
+                onClose();
+                return;
+            }
 
-            // 3. Remove from Users' associatedGroups
-            // Note: We use groupData.members (which we loaded locally). 
-            // Better to use members from groupData directly if available.
-            // If members list is huge, this batch might exceed 500 ops limit. 
-            // Assuming reasonable group size for this MVP.
-            const memberIds = groupData.members || [];
-            memberIds.forEach(memberId => {
+            const freshData = groupSnap.data();
+            const memberIds = freshData?.members || [];
+
+            // 2. Remove from Users' associatedGroups (Clean References)
+            memberIds.forEach((memberId: string) => {
                 const userRef = doc(db, "users", memberId);
                 batch.update(userRef, {
                     associatedGroups: arrayRemove(groupId)
                 });
             });
 
+            // 3. Delete Group Requests
+            const requestsQ = query(collection(db, "group_requests"), where("groupId", "==", groupId));
+            const requestsSnap = await getDocs(requestsQ);
+            requestsSnap.forEach(reqDoc => {
+                batch.delete(reqDoc.ref);
+            });
+
+            // 4. Archive/Delete Matches (Optional - Setting field to archived for safety or delete)
+            // For now, we leave matches but they will be orphans. To prevent UI issues, pages showing matches usually filter by group existence or we should delete.
+            // Given the complexity of deep deleting matches+stats, we skip deep delete but users are clean.
+
+            // 5. Delete Group Document
+            batch.delete(groupRef);
+
             await batch.commit();
 
             onUpdate();
             onClose();
+            // alert("Grupo eliminado y referencias limpiadas.");
         } catch (err) {
             console.error("Error eliminando grupo:", err);
             setError("Error al eliminar el grupo. Inténtalo de nuevo.");
