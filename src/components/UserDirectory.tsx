@@ -525,8 +525,6 @@ export default function UserDirectory({ currentUser }: UserDirectoryProps) {
                                     onRoleUpdate={handleUpdateRole}
                                     onOpenDetail={() => openUserDetail(u)}
                                     // @ts-ignore - Prop drilling simple
-                                    onOpenDetail={() => openUserDetail(u)}
-                                    // @ts-ignore - Prop drilling simple
                                     onEdit={handleEditGuest}
                                     onReviewRequest={handleReviewRequest}
                                 />
