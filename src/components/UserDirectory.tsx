@@ -10,6 +10,7 @@ import UserDetailModal from "./UserDetailModal";
 import ConfirmationModal from "./ConfirmationModal";
 import UserCard, { UserActions } from "./UserCard";
 import CreateGuestModal from "./CreateGuestModal"; // Imported
+import { toast } from "sonner";
 
 interface UserDirectoryProps {
     currentUser: { uid: string; role?: string; displayName?: string | null };
@@ -213,7 +214,7 @@ export default function UserDirectory({ currentUser }: UserDirectoryProps) {
     const handleDeleteUser = async (userId: string) => {
         const userToDelete = users.find(u => u.id === userId);
         if (currentUser.role !== 'superadmin' && userToDelete?.role !== 'guest') {
-            alert("No tienes permisos para eliminar usuarios registrados.");
+            toast.error("No tienes permisos para eliminar usuarios registrados.");
             return;
         }
 
@@ -268,10 +269,10 @@ export default function UserDirectory({ currentUser }: UserDirectoryProps) {
                     await batch.commit();
 
                     setUsers((prev) => prev.filter((u) => u.id !== userId));
-                    // alert("Usuario eliminado correctamente y referencias limpiadas.");
+                    toast.success("Usuario eliminado correctamente.");
                 } catch (error) {
                     console.error("Error deleting user:", error);
-                    alert("Hubo un error al eliminar el usuario.");
+                    toast.error("Hubo un error al eliminar el usuario.");
                 }
             }
         );
@@ -335,7 +336,7 @@ export default function UserDirectory({ currentUser }: UserDirectoryProps) {
                 setUsers(prev => prev.map(u => u.id === user.id ? { ...u, displayName: newName.trim() } : u));
             } catch (error) {
                 console.error("Error renaming guest:", error);
-                alert("Error al actualizar nombre.");
+                toast.error("Error al actualizar nombre.");
             }
         }
     };
