@@ -2,12 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import { useAuthContext } from '@/context/AuthContext';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { PLAYER_POSITIONS, PlayerPosition } from '@/types/user';
 import { Trophy, Check, UserIcon, Activity } from 'lucide-react';
 
-export default function OnboardingModal() {
+export default function OnboardingModal({ forceOpen }: { forceOpen?: boolean }) {
     const { user, userData } = useAuthContext();
     const [isVisible, setIsVisible] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -19,6 +19,11 @@ export default function OnboardingModal() {
     const [strongFoot, setStrongFoot] = useState<'right' | 'left' | 'ambidextrous'>('right');
 
     useEffect(() => {
+        if (forceOpen) {
+            setIsVisible(true);
+            return;
+        }
+
         // Show only if user is logged in, data is loaded, and onboarding is NOT completed
         if (user && userData) {
             if (userData.onboardingCompleted === false || userData.onboardingCompleted === undefined) {
@@ -27,7 +32,7 @@ export default function OnboardingModal() {
                 setIsVisible(false);
             }
         }
-    }, [user, userData]);
+    }, [user, userData, forceOpen]);
 
     const handleSubmit = async () => {
         if (!user) return;
@@ -38,12 +43,19 @@ export default function OnboardingModal() {
 
         setLoading(true);
         try {
-            await updateDoc(doc(db, 'users', user.uid), {
+            // Use setDoc with merge to ensure document creation if it doesn't exist (e.g. Google Auth first time)
+            await setDoc(doc(db, 'users', user.uid), {
                 nickname: nickname.trim(),
                 position,
                 strongFoot,
-                onboardingCompleted: true
-            });
+                onboardingCompleted: true,
+                email: user.email,
+                displayName: user.displayName || nickname.trim(),
+                role: userData?.role || 'user', // Preserve role if exists, else default to user
+                photoURL: user.photoURL,
+                updatedAt: new Date()
+            }, { merge: true });
+
             // The listener in AuthContext should update userData, causing the modal to close via useEffect
             setIsVisible(false);
         } catch (error) {

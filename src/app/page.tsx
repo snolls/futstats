@@ -65,6 +65,31 @@ export default function Home() {
     }
   }, [user, loading, router]);
 
+  // 1.5. Real-time User Data Listener for Onboarding
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    const unsub = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        // If onboarding is NOT completed, show modal
+        if (data.onboardingCompleted === false || data.onboardingCompleted === undefined) {
+          setShowOnboarding(true);
+        } else {
+          setShowOnboarding(false);
+        }
+      } else {
+        // User doc doesn't exist yet (e.g. fresh google login before trigger)
+        // We can assume we need onboarding, or wait for creation. 
+        // Usually trigger creates it, or we create it here if missing?
+        // For now, let's show onboarding if missing, assuming modal handles creation/update
+        setShowOnboarding(true);
+      }
+    });
+    return () => unsub();
+  }, [user]);
+
   // 2. Carga de Partidos: Se ejecuta cuando hay un usuario logueado
   // Se suscribe a cambios en tiempo real (onSnapshot)
   useEffect(() => {
@@ -338,36 +363,19 @@ export default function Home() {
                   Acciones Rápidas
                 </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {role === 'superadmin' && (
-                    <>
-                      <button
-                        onClick={() => setIsGroupModalOpen(true)}
-                        className="flex items-center justify-center gap-3 p-6 bg-gray-800 hover:bg-gray-700/50 border border-gray-700 rounded-xl transition-all group"
-                      >
-                        <div className="p-3 bg-blue-500/20 rounded-full text-blue-400 group-hover:scale-110 transition-transform">
-                          <Users className="w-6 h-6" />
-                        </div>
-                        <div className="text-left">
-                          <h3 className="text-lg font-semibold text-white">Gestión de Grupos</h3>
-                          <p className="text-sm text-gray-400">Crear un nuevo grupo</p>
-                        </div>
-                      </button>
-
-                      <button
-                        onClick={handleSanitizeGroups}
-                        className="flex items-center justify-center gap-3 p-6 bg-gray-800 hover:bg-red-900/20 border border-gray-700 hover:border-red-500/30 rounded-xl transition-all group"
-                      >
-                        <div className="p-3 bg-red-500/20 rounded-full text-red-400 group-hover:scale-110 transition-transform">
-                          <Shield className="w-6 h-6" />
-                        </div>
-                        <div className="text-left">
-                          <h3 className="text-lg font-semibold text-white">Mantenimiento</h3>
-                          <p className="text-sm text-gray-400">Sanitizar Grupos</p>
-                        </div>
-                      </button>
-
-
-                    </>
+                  {['superadmin', 'admin'].includes(role || '') && (
+                    <button
+                      onClick={() => setIsGroupModalOpen(true)}
+                      className="flex items-center justify-center gap-3 p-6 bg-gray-800 hover:bg-gray-700/50 border border-gray-700 rounded-xl transition-all group"
+                    >
+                      <div className="p-3 bg-blue-500/20 rounded-full text-blue-400 group-hover:scale-110 transition-transform">
+                        <Users className="w-6 h-6" />
+                      </div>
+                      <div className="text-left">
+                        <h3 className="text-lg font-semibold text-white">Gestión de Grupos</h3>
+                        <p className="text-sm text-gray-400">Crear un nuevo grupo</p>
+                      </div>
+                    </button>
                   )}
 
                   {(role === 'admin' || role === 'superadmin') && (
@@ -455,7 +463,7 @@ export default function Home() {
           />
 
           {/* --- ONBOARDING OBLIGATORIO --- */}
-          <OnboardingModal />
+          {showOnboarding && <OnboardingModal forceOpen={true} />}
         </div>
       </main>
     </div>
