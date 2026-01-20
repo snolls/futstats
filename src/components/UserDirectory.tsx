@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { collection, query, where, getDocs, documentId, deleteDoc, doc, updateDoc, increment } from "firebase/firestore";
+import { getDocs, collection, query, where, orderBy, deleteDoc, doc, updateDoc, writeBatch, arrayRemove, documentId } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { AppUserCustomData } from "@/types/user";
 import { User as UserIcon, Shield, ShieldCheck, Trash2, LayoutGrid, List as ListIcon, Banknote, AlertTriangle, CheckCircle2, UserPlus, Search } from "lucide-react"; // UserPlus added
@@ -213,14 +213,41 @@ export default function UserDirectory({ currentUser }: UserDirectoryProps) {
     const handleDeleteUser = async (userId: string) => {
         confirmAction(
             "Eliminar Usuario",
-            "¿Estás seguro de que deseas eliminar este usuario? Esta acción es irreversible y eliminará todos sus datos.",
+            "¿Estás seguro de que deseas eliminar este usuario? Esta acción es irreversible y eliminará todos sus datos, incluyendo estadísticas y membresías.",
             "danger",
             async () => {
                 try {
-                    await deleteDoc(doc(db, "users", userId));
+                    const batch = writeBatch(db);
+
+                    // 1. Get User Data for Groups
+                    const userToDelete = users.find(u => u.id === userId);
+                    if (userToDelete?.associatedGroups) {
+                        userToDelete.associatedGroups.forEach(groupId => {
+                            const groupRef = doc(db, "groups", groupId);
+                            batch.update(groupRef, {
+                                members: arrayRemove(userId),
+                                adminIds: arrayRemove(userId)
+                            });
+                        });
+                    }
+
+                    // 2. Delete Stats
+                    const statsQ = query(collection(db, "match_stats"), where("userId", "==", userId));
+                    const statsSnap = await getDocs(statsQ);
+                    statsSnap.forEach(statDoc => {
+                        batch.delete(statDoc.ref);
+                    });
+
+                    // 3. Delete User
+                    const userRef = doc(db, "users", userId);
+                    batch.delete(userRef);
+
+                    await batch.commit();
+
                     setUsers((prev) => prev.filter((u) => u.id !== userId));
                 } catch (error) {
                     console.error("Error deleting user:", error);
+                    alert("Hubo un error al eliminar el usuario.");
                 }
             }
         );

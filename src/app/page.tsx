@@ -13,7 +13,7 @@ import StatsTable from '@/components/StatsTable';
 import MatchCard from '@/components/MatchCard';
 import UserDirectory from '@/components/UserDirectory';
 import { Plus, Users, Settings, Shield, Contact } from 'lucide-react';
-import { collection, query, orderBy, limit, onSnapshot, where } from 'firebase/firestore';
+import { collection, query, orderBy, limit, onSnapshot, where, getDocs, updateDoc, doc, documentId } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
 interface GroupData {
@@ -50,6 +50,10 @@ export default function Home() {
   const [managedGroups, setManagedGroups] = useState<GroupData[]>([]);
   const [groupsLoading, setGroupsLoading] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<GroupData | null>(null);
+
+  // --- ESTADOS PARA RANKING CONTEXTUAL ---
+  const [rankingGroupId, setRankingGroupId] = useState<string | null>(null);
+  const [availableRankingGroups, setAvailableRankingGroups] = useState<{ id: string, name: string }[]>([]);
 
   // --- EFECTOS (USEEFFECT) ---
 
@@ -130,6 +134,56 @@ export default function Home() {
     }
   }, [user, role, activeTab]);
 
+  // 4. Cargar Grupos para Ranking Contextual (Dropdown)
+  useEffect(() => {
+    const fetchRankingGroups = async () => {
+      if (!user) return;
+
+      try {
+        let groupsToFetch: string[] = [];
+
+        if (role === 'superadmin') {
+          // Superadmin ve todos los grupos
+          const allGroupsSnap = await getDocs(query(collection(db, 'groups'), orderBy('name')));
+          const allGroups = allGroupsSnap.docs.map(d => ({ id: d.id, name: d.data().name }));
+          setAvailableRankingGroups(allGroups);
+          return;
+        }
+
+        // Usuarios normales: Basado en associatedGroups y adminIds
+        // Usamos associatedGroups del perfil si existe
+        if (userData?.associatedGroups && userData.associatedGroups.length > 0) {
+          groupsToFetch = [...userData.associatedGroups];
+        }
+
+        // Si es admin, asegurar que sus grupos gestionados también estén (por redundancia)
+        // Aunque el fix de sync debería haberlo cubierto.
+
+        if (groupsToFetch.length > 0) {
+          // Firestore 'in' query limit is 10. Chunk it.
+          const chunks = [];
+          const fetchedGroups: { id: string, name: string }[] = [];
+          for (let i = 0; i < groupsToFetch.length; i += 10) {
+            const chunk = groupsToFetch.slice(i, i + 10);
+            const q = query(collection(db, 'groups'), where(documentId(), 'in', chunk));
+            const snap = await getDocs(q);
+            snap.forEach(d => fetchedGroups.push({ id: d.id, name: d.data().name }));
+          }
+          setAvailableRankingGroups(fetchedGroups.sort((a, b) => a.name.localeCompare(b.name)));
+        } else {
+          setAvailableRankingGroups([]);
+        }
+
+      } catch (error) {
+        console.error("Error loading ranking groups:", error);
+      }
+    };
+
+    if (activeTab === 'stats') {
+      fetchRankingGroups();
+    }
+  }, [user, role, userData, activeTab]);
+
   const handleEditGroup = (group: GroupData) => {
     setSelectedGroup(group);
     setIsEditGroupModalOpen(true);
@@ -138,6 +192,48 @@ export default function Home() {
   const refreshGroups = () => {
     // Snapshot listener handles refresh automatically, 
     // but if we used getDocs we would call fetchGroups here.
+  };
+
+  const handleSanitizeGroups = async () => {
+    if (role !== 'superadmin') return;
+    const confirm = window.confirm("¿Ejecutar script de sanitización de grupos? Esto eliminará usuarios fantasma.");
+    if (!confirm) return;
+
+    try {
+      // 1. Fetch ALL Users
+      const usersSnap = await getDocs(collection(db, 'users'));
+      const existingUserIds = new Set(usersSnap.docs.map(d => d.id));
+
+      // 2. Fetch ALL Groups
+      const groupsSnap = await getDocs(collection(db, 'groups'));
+      let fixedCount = 0;
+
+      // 3. Iterate and Fix
+      for (const groupDoc of groupsSnap.docs) {
+        const groupData = groupDoc.data();
+        const currentMembers = groupData.memberIds || []; // Using memberIds as per user request/standard
+        // Note: Check legacy 'members' field if exists, but standardizing on memberIds/members based on usage. 
+        // Based on previous edits, we use 'members' in UserDetailModal/EditGroupModal.
+        // Let's check both or stick to 'members' as seen in other files.
+        // EditGroupModal uses 'members' array in Firestore (from my previous fix).
+        // The user request says "Filtrar su array memberIds". I'll try to support 'members' which is what I used in atomic fix.
+
+        const memberArray = groupData.members || [];
+        const validMembers = memberArray.filter((uid: string) => existingUserIds.has(uid));
+
+        if (validMembers.length !== memberArray.length) {
+          await updateDoc(doc(db, 'groups', groupDoc.id), {
+            members: validMembers
+          });
+          fixedCount++;
+        }
+      }
+
+      alert(`Limpieza completada. Se corrigieron ${fixedCount} grupos.`);
+    } catch (err) {
+      console.error("Error sanitizing groups:", err);
+      alert("Error al ejecutar el script.");
+    }
   };
 
   if (loading || !user) {
@@ -175,7 +271,28 @@ export default function Home() {
 
           {/* 1. Vista de ESTADÍSTICAS */}
           {activeTab === 'stats' && (
-            <StatsTable />
+            <div className="space-y-4">
+              {/* Context Selector */}
+              <div className="flex justify-end">
+                <div className="relative inline-block w-full sm:w-64">
+                  <select
+                    value={rankingGroupId || ""}
+                    onChange={(e) => setRankingGroupId(e.target.value === "" ? null : e.target.value)}
+                    className="w-full bg-gray-900 border border-gray-700 text-white rounded-lg px-4 py-2 appearance-none focus:ring-2 focus:ring-green-500/50 outline-none"
+                  >
+                    <option value="">🏆 Ranking Global</option>
+                    {availableRankingGroups.map(g => (
+                      <option key={g.id} value={g.id}>🛡️ {g.name}</option>
+                    ))}
+                  </select>
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-400">
+                    <Shield className="h-4 w-4" />
+                  </div>
+                </div>
+              </div>
+
+              <StatsTable selectedGroupId={rankingGroupId} />
+            </div>
           )}
 
           {/* 2. Vista de PARTIDOS (Próximos encuentros) */}
@@ -232,6 +349,19 @@ export default function Home() {
                         <div className="text-left">
                           <h3 className="text-lg font-semibold text-white">Gestión de Grupos</h3>
                           <p className="text-sm text-gray-400">Crear un nuevo grupo</p>
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={handleSanitizeGroups}
+                        className="flex items-center justify-center gap-3 p-6 bg-gray-800 hover:bg-red-900/20 border border-gray-700 hover:border-red-500/30 rounded-xl transition-all group"
+                      >
+                        <div className="p-3 bg-red-500/20 rounded-full text-red-400 group-hover:scale-110 transition-transform">
+                          <Shield className="w-6 h-6" />
+                        </div>
+                        <div className="text-left">
+                          <h3 className="text-lg font-semibold text-white">Mantenimiento</h3>
+                          <p className="text-sm text-gray-400">Sanitizar Grupos</p>
                         </div>
                       </button>
 

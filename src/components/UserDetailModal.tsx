@@ -5,7 +5,7 @@ import { X, Calendar, Wallet, CheckCircle2, AlertTriangle, Plus, Minus, Loader2,
 import { usePlayerDebts } from '@/hooks/usePlayerDebts';
 import { AppUserCustomData } from '@/types/user';
 import { db } from '@/lib/firebase';
-import { doc, updateDoc, getDocs, collection, query, where, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { doc, updateDoc, getDocs, collection, query, where, arrayUnion, arrayRemove, writeBatch } from 'firebase/firestore';
 import { useAuthContext } from '@/context/AuthContext';
 
 interface UserDetailModalProps {
@@ -152,18 +152,29 @@ export default function UserDetailModal({ isOpen, onClose, user, onUpdate }: Use
     const toggleGroupAssociation = async (groupId: string, isAssociated: boolean) => {
         setProcessingId(`group-${groupId}`);
         try {
+            const batch = writeBatch(db);
             const userRef = doc(db, "users", user.id);
+            const groupRef = doc(db, "groups", groupId);
+
             if (isAssociated) {
-                // Remove
-                await updateDoc(userRef, {
+                // Remove from both: user.associatedGroups and group.members
+                batch.update(userRef, {
                     associatedGroups: arrayRemove(groupId)
                 });
+                batch.update(groupRef, {
+                    members: arrayRemove(user.id)
+                });
             } else {
-                // Add
-                await updateDoc(userRef, {
+                // Add to both: user.associatedGroups and group.members
+                batch.update(userRef, {
                     associatedGroups: arrayUnion(groupId)
                 });
+                batch.update(groupRef, {
+                    members: arrayUnion(user.id)
+                });
             }
+
+            await batch.commit();
             onUpdate();
         } catch (err) {
             console.error("Error toggling group:", err);

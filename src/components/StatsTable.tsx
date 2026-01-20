@@ -18,7 +18,11 @@ interface PlayerStatRow {
     isGuest: boolean;
 }
 
-export default function StatsTable() {
+interface StatsTableProps {
+    selectedGroupId?: string | null;
+}
+
+export default function StatsTable({ selectedGroupId }: StatsTableProps) {
     const { user, userData } = useAuthContext();
     const [stats, setStats] = useState<PlayerStatRow[]>([]);
     const [loading, setLoading] = useState(true);
@@ -45,10 +49,18 @@ export default function StatsTable() {
                 }
 
                 let relevantMatchIds: string[] = [];
-                if (userData?.role === 'superadmin') {
+
+                if (selectedGroupId) {
+                    // CONTEXT: Specific Group
+                    const q = query(collection(db, 'matches'), where('groupId', '==', selectedGroupId));
+                    const snap = await getDocs(q);
+                    relevantMatchIds = snap.docs.map(m => m.id);
+                } else if (userData?.role === 'superadmin') {
+                    // CONTEXT: Global (Superadmin)
                     const matchesSnap = await getDocs(collection(db, 'matches'));
                     relevantMatchIds = matchesSnap.docs.map(m => m.id);
                 } else {
+                    // CONTEXT: Global (Regular User/Admin) - Show matches from ALL my groups
                     const matchRef = collection(db, 'matches');
                     const chunks = [];
                     for (let i = 0; i < myGroupIds.length; i += 10) chunks.push(myGroupIds.slice(i, i + 10));
@@ -132,7 +144,8 @@ export default function StatsTable() {
             }
         };
         fetchStats();
-    }, [user, userData]);
+        fetchStats();
+    }, [user, userData, selectedGroupId]);
 
     // Sorting Logic
     const handleSort = (key: keyof PlayerStatRow) => {
