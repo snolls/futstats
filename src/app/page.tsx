@@ -140,7 +140,7 @@ export default function Home() {
     <div className="min-h-screen bg-gray-950 text-white selection:bg-green-500/30">
       <Navbar />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative">
+      <main className="max-w-7xl mx-auto p-3 md:p-8 relative">
         {/* Ambient Background Effects */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[500px] h-[500px] bg-green-500/5 rounded-full blur-[120px] pointer-events-none" />
 
@@ -199,7 +199,7 @@ export default function Home() {
                   <Settings className="w-5 h-5 text-gray-400" />
                   Acciones Rápidas
                 </h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {role === 'superadmin' && (
                     <>
                       <button

@@ -36,8 +36,8 @@ export default function Navbar() {
 
     return (
         <nav className="sticky top-0 z-50 w-full bg-gray-900/60 backdrop-blur-md border-b border-gray-800">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                <div className="flex items-center justify-between h-16">
+            <div className="max-w-7xl mx-auto px-4 md:px-8">
+                <div className="flex flex-col gap-4 py-3 sm:py-0 sm:flex-row sm:justify-between sm:items-center sm:h-16">
                     <div className="flex-shrink-0">
                         <Link href="/" className="hover:opacity-80 transition-opacity">
                             <Image
@@ -52,7 +52,7 @@ export default function Navbar() {
                         </Link>
                     </div>
 
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-4 w-full sm:w-auto justify-end sm:justify-start">
                         {user && (
                             <div className="relative" ref={dropdownRef}>
                                 <button
@@ -73,8 +73,8 @@ export default function Navbar() {
                                 {dropdownOpen && (
                                     <div className="absolute right-0 mt-2 w-48 bg-gray-900 border border-gray-800 rounded-xl shadow-xl py-1 transform opacity-100 scale-100 transition-all">
                                         <div className="px-4 py-3 border-b border-gray-800">
-                                            <p className="text-sm font-medium text-white max-w-full truncate">{user.displayName || 'Usuario'}</p>
-                                            <p className="text-xs text-gray-500 max-w-full truncate">{user.email}</p>
+                                            <p className="text-xs sm:text-sm font-medium text-white max-w-full truncate">{user.displayName || 'Usuario'}</p>
+                                            <p className="text-[10px] sm:text-xs text-gray-500 max-w-full truncate">{user.email}</p>
                                         </div>
                                         <a href="#" className="flex items-center px-4 py-2 text-sm text-gray-300 hover:bg-gray-800 hover:text-white transition-colors">
                                             <UserIcon className="w-4 h-4 mr-2" />

@@ -178,7 +178,7 @@ export default function StatsTable() {
 
     return (
         <div className="bg-gray-900/50 backdrop-blur-md border border-gray-800 rounded-xl overflow-hidden shadow-lg">
-            <div className="overflow-x-auto">
+            <div className="w-full overflow-x-auto shadow-md rounded-lg">
                 <table className="w-full text-left border-collapse">
                     <thead>
                         <tr className="bg-gray-800/50 text-gray-400 text-sm uppercase tracking-wider">

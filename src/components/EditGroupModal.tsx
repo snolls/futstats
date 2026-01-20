@@ -262,7 +262,7 @@ export default function EditGroupModal({ isOpen, onClose, groupData, onUpdate }:
                 onClick={onClose}
             />
 
-            <div className="relative w-full max-w-2xl bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl transform transition-all my-8 flex flex-col max-h-[90vh]">
+            <div className="relative w-[95%] max-w-3xl bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl transform transition-all my-8 flex flex-col max-h-[85vh]">
                 <div className="flex items-center justify-between p-6 border-b border-gray-800 shrink-0">
                     <h3 className="text-xl font-semibold text-white flex items-center gap-2">
                         <Users className="w-5 h-5 text-blue-500" />

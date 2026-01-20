@@ -148,7 +148,7 @@ export default function UserDetailModal({ isOpen, onClose, user, onUpdate }: Use
                 onClick={onClose}
             />
 
-            <div className="relative w-full max-w-lg bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="relative w-[95%] max-w-3xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl flex flex-col max-h-[85vh]">
                 {/* Header */}
                 <div className="flex items-center justify-between p-6 border-b border-slate-800 shrink-0">
                     <div className="flex items-center gap-3">
