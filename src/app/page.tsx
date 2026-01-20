@@ -140,19 +140,19 @@ export default function Home() {
     <div className="min-h-screen bg-gray-950 text-white selection:bg-green-500/30">
       <Navbar />
 
-      <main className="max-w-7xl mx-auto p-3 md:p-8 relative">
+      <main className="min-h-screen w-full max-w-[100vw] overflow-x-hidden p-4 md:p-8 relative">
         {/* Ambient Background Effects */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[500px] h-[500px] bg-green-500/5 rounded-full blur-[120px] pointer-events-none" />
 
-        <div className="relative z-10 w-full">
-          <div className="mb-8 items-center text-center sm:text-left">
-            <h1 className="text-3xl font-bold">
+        <div className="relative z-10 max-w-7xl mx-auto space-y-6">
+          <div className="items-center text-center sm:text-left">
+            <h1 className="text-2xl md:text-4xl font-bold">
               Bienvenido, <span className="bg-gradient-to-r from-green-400 to-blue-500 bg-clip-text text-transparent">{user.displayName}</span>
             </h1>
             <p className="text-gray-400 mt-1">Gestiona tus estadísticas y partidos.</p>
           </div>
 
-          <div className="flex justify-center sm:justify-start">
+          <div className="w-full">
             <DashboardNav activeTab={activeTab} onTabChange={setActiveTab} />
           </div>
 

@@ -52,7 +52,7 @@ export default function CreateGroupModal({ isOpen, onClose }: CreateGroupModalPr
             />
 
             {/* Modal Content */}
-            <div className="relative w-[95%] max-w-md bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl transform transition-all flex flex-col max-h-[85vh] overflow-hidden">
+            <div className="relative w-[95vw] max-w-md bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl transform transition-all flex flex-col max-h-[85vh] overflow-hidden">
                 <div className="flex items-center justify-between p-6 border-b border-gray-800">
                     <h3 className="text-xl font-semibold text-white flex items-center gap-2">
                         <Users className="w-5 h-5 text-blue-500" />

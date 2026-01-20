@@ -270,7 +270,7 @@ export default function UserDirectory({ currentUser }: UserDirectoryProps) {
             </div>
 
             {viewMode === 'grid' ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     {filteredUsers.map(u => (
                         <UserCard
                             key={u.id}
@@ -283,7 +283,7 @@ export default function UserDirectory({ currentUser }: UserDirectoryProps) {
                     ))}
                 </div>
             ) : (
-                <div className="w-full overflow-x-auto bg-gray-900/50 backdrop-blur-md border border-gray-800 rounded-xl">
+                <div className="w-full overflow-x-auto bg-gray-900/50 backdrop-blur-md border border-gray-800 rounded-xl max-w-full">
                     <table className="w-full text-left border-collapse">
                         <thead>
                             <tr className="border-b border-gray-800 text-gray-400 text-xs uppercase tracking-wider bg-gray-900/50">

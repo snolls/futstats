@@ -22,7 +22,7 @@ export default function DashboardNav({ activeTab, onTabChange }: DashboardNavPro
     ].filter(tab => !tab.adminOnly || isAdmin); // Filter out admin-only tabs if not admin
 
     return (
-        <div className="flex w-full overflow-x-auto pb-2 gap-2 no-scrollbar sm:w-fit sm:mx-auto sm:pb-1 sm:overflow-visible items-center p-1 bg-gray-900/50 backdrop-blur-sm rounded-xl border border-gray-800 mt-6 mb-8">
+        <div className="flex w-full overflow-x-auto gap-2 pb-2 no-scrollbar mask-linear items-center p-1 bg-gray-900/50 backdrop-blur-sm rounded-xl border border-gray-800">
             {tabs.map((tab) => {
                 const Icon = tab.icon;
                 const isActive = activeTab === tab.id;
