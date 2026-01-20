@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { X, Users, Loader2 } from "lucide-react";
-import { addDoc, collection, serverTimestamp, getDocs, query, where } from "firebase/firestore";
+import { collection, serverTimestamp, getDocs, query, where, writeBatch, doc, arrayUnion } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuthContext } from "@/context/AuthContext";
 
@@ -37,12 +37,23 @@ export default function CreateGroupModal({ isOpen, onClose }: CreateGroupModalPr
                 return;
             }
 
-            await addDoc(collection(db, "groups"), {
+            const batch = writeBatch(db);
+            const groupRef = doc(collection(db, "groups"));
+            const userRef = doc(db, "users", user.uid);
+
+            const newGroup = {
                 name: groupName.trim(),
                 adminIds: [user.uid],
-                members: [user.uid], // Creator is automatically a member
+                members: [user.uid],
                 createdAt: serverTimestamp(),
+            };
+
+            batch.set(groupRef, newGroup);
+            batch.update(userRef, {
+                associatedGroups: arrayUnion(groupRef.id)
             });
+
+            await batch.commit();
             setGroupName("");
             onClose();
         } catch (err) {
