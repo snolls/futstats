@@ -9,7 +9,6 @@ import DashboardNav from '@/components/DashboardNav';
 import CreateGroupModal from '@/components/CreateGroupModal';
 import CreateMatchModal from '@/components/CreateMatchModal';
 import EditGroupModal from '@/components/EditGroupModal';
-import UsersTable from '@/components/UsersTable';
 import StatsTable from '@/components/StatsTable';
 import MatchCard from '@/components/MatchCard';
 import UserDirectory from '@/components/UserDirectory';
