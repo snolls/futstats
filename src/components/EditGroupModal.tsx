@@ -423,197 +423,191 @@ export default function EditGroupModal({ isOpen, onClose, groupData, onUpdate }:
                         </div>
                     )}
 
-                    {showDeleteConfirm ? (
-                        <div className="flex flex-col items-center justify-center p-6 text-center space-y-4 animate-in fade-in zoom-in duration-200 h-full">
-                            <div className="w-16 h-16 bg-red-500/20 rounded-full flex items-center justify-center mb-2">
-                                <AlertTriangle className="w-8 h-8 text-red-500" />
-                            </div>
-                            <h3 className="text-xl font-bold text-white">¿Eliminar {name}?</h3>
-                            <p className="text-gray-400 text-sm max-w-xs mx-auto">
-                                Esta acción es irreversible. Se eliminarán el historial de partidos, las estadísticas asociadas y las solicitudes pendientes.
-                            </p>
+                    {/* Tabs */}
+                    <div className="flex border-b border-slate-800 mb-6">
+                        <button
+                            onClick={() => setActiveTab('members')}
+                            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'members' ? 'border-blue-500 text-blue-500' : 'border-transparent text-slate-400 hover:text-white'}`}
+                        >
+                            Miembros ({members.length})
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('requests')}
+                            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'requests' ? 'border-blue-500 text-blue-500' : 'border-transparent text-slate-400 hover:text-white'}`}
+                        >
+                            Solicitudes
+                            {requests.length > 0 && (
+                                <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                                    {requests.length}
+                                </span>
+                            )}
+                        </button>
+                    </div>
 
-                            <div className="flex gap-3 w-full mt-6">
-                                <button
-                                    onClick={() => setShowDeleteConfirm(false)}
-                                    className="flex-1 px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors"
-                                >
-                                    Cancelar
-                                </button>
-                                <button
-                                    onClick={handleDeleteGroup}
-                                    disabled={isLoading}
-                                    className="flex-1 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white font-bold transition-colors flex items-center justify-center gap-2"
-                                >
-                                    {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                                    Sí, Eliminar
-                                </button>
-                            </div>
-                        </div>
-                    ) : (
+                    {activeTab === 'members' ? (
                         <>
-                            {/* Tabs */}
-                            <div className="flex border-b border-slate-800 mb-6">
-                                <button
-                                    onClick={() => setActiveTab('members')}
-                                    className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === 'members' ? 'border-blue-500 text-blue-500' : 'border-transparent text-slate-400 hover:text-white'}`}
-                                >
-                                    Miembros ({members.length})
-                                </button>
-                                <button
-                                    onClick={() => setActiveTab('requests')}
-                                    className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'requests' ? 'border-blue-500 text-blue-500' : 'border-transparent text-slate-400 hover:text-white'}`}
-                                >
-                                    Solicitudes
-                                    {requests.length > 0 && (
-                                        <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                                            {requests.length}
-                                        </span>
-                                    )}
-                                </button>
+                            {/* Rename Section */}
+                            <form onSubmit={handleUpdateName} className="space-y-4">
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium text-slate-300">Nombre del Grupo</label>
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            value={name}
+                                            onChange={(e) => setName(e.target.value)}
+                                            className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                        />
+                                        <button
+                                            type="submit"
+                                            disabled={isLoading || name === groupData?.name}
+                                            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                                            Guardar
+                                        </button>
+                                    </div>
+                                </div>
+                            </form>
+
+                            {/* Add Member Section */}
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-slate-300">Añadir Miembros</label>
+                                <div className="relative">
+                                    <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
+                                    <input
+                                        type="text"
+                                        value={searchTerm}
+                                        onChange={(e) => handleSearchUsers(e.target.value)}
+                                        placeholder="Buscar por nombre (min 3 letras)..."
+                                        className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                    />
+                                </div>
+                                {/* Search Results Dropdown */}
+                                {searchTerm.length >= 3 && (
+                                    <div className="bg-slate-950 border border-slate-800 rounded-lg mt-2 max-h-40 overflow-y-auto">
+                                        {isSearching ? (
+                                            <div className="p-3 text-center text-gray-500 text-sm">Buscando...</div>
+                                        ) : searchResults.length === 0 ? (
+                                            <div className="p-3 text-center text-gray-500 text-sm">No se encontraron usuarios.</div>
+                                        ) : (
+                                            searchResults.map(u => (
+                                                <button
+                                                    key={u.id}
+                                                    onClick={() => addMember(u)}
+                                                    className="w-full text-left p-3 hover:bg-slate-800 flex items-center gap-3 transition-colors"
+                                                >
+                                                    <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-xs font-bold text-slate-400">
+                                                        {u.displayName?.slice(0, 2).toUpperCase()}
+                                                    </div>
+                                                    <span className="text-sm text-slate-300">{u.displayName}</span>
+                                                    <UserPlus className="w-4 h-4 ml-auto text-blue-500" />
+                                                </button>
+                                            ))
+                                        )}
+                                    </div>
+                                )}
                             </div>
 
-                            {activeTab === 'members' ? (
-                                <>
-                                    {/* Rename Section */}
-                                    <form onSubmit={handleUpdateName} className="space-y-4">
-                                        <div className="space-y-2">
-                                            <label className="text-sm font-medium text-slate-300">Nombre del Grupo</label>
-                                            <div className="flex gap-2">
-                                                <input
-                                                    type="text"
-                                                    value={name}
-                                                    onChange={(e) => setName(e.target.value)}
-                                                    className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                                                />
+                            {/* Members List */}
+                            <div className="space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-sm font-medium text-slate-300">Miembros ({members.length})</label>
+                                </div>
+
+                                {isLoadingMembers ? (
+                                    <div className="flex justify-center py-8">
+                                        <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
+                                    </div>
+                                ) : MembersList(members, admins, user?.uid, toggleAdmin, removeMember)}
+
+                                {/* Danger Zone */}
+
+                                {(userData?.role === 'superadmin' || (user && groupData?.adminIds.includes(user.uid))) && (
+                                    <>
+                                        {showDeleteConfirm ? (
+                                            <div className="mt-6 p-4 bg-red-950/30 border border-red-500/50 rounded-lg animate-in fade-in slide-in-from-bottom-2">
+                                                <div className="flex flex-col items-center text-center gap-3">
+                                                    <span className="text-3xl">⚠️</span>
+                                                    <h4 className="text-red-400 font-bold text-lg">¿Estás absolutamente seguro?</h4>
+                                                    <p className="text-red-200/70 text-sm mb-2">
+                                                        Esta acción borrará el grupo <strong>{groupData?.name}</strong>, todos sus partidos y estadísticas. No se puede deshacer.
+                                                    </p>
+                                                    <div className="flex w-full gap-3">
+                                                        <button
+                                                            onClick={() => setShowDeleteConfirm(false)}
+                                                            className="flex-1 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded transition-colors"
+                                                        >
+                                                            Cancelar
+                                                        </button>
+                                                        <button
+                                                            onClick={handleDeleteGroup}
+                                                            className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded shadow-lg shadow-red-900/20 transition-all hover:scale-[1.02]"
+                                                        >
+                                                            ¡SÍ, ELIMINAR!
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="mt-8 pt-6 border-t border-red-900/20">
+                                                <h3 className="text-red-500/80 font-semibold mb-3 text-sm uppercase tracking-wider">Zona de Peligro</h3>
                                                 <button
-                                                    type="submit"
-                                                    disabled={isLoading || name === groupData?.name}
-                                                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                    type="button"
+                                                    onClick={(e) => {
+                                                        e.preventDefault();
+                                                        setShowDeleteConfirm(true);
+                                                    }}
+                                                    className="w-full py-3 border border-red-900/50 text-red-500 hover:bg-red-950/30 hover:border-red-500 rounded-lg transition-all flex items-center justify-center gap-2 group"
                                                 >
-                                                    {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                                                    Guardar
+                                                    <span>🗑️</span>
+                                                    <span className="group-hover:font-bold">Solicitar Eliminación de Grupo</span>
+                                                </button>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+                            </div>
+                        </>
+                    ) : (
+                        // REQUESTS TAB
+                        <div className="space-y-4">
+                            <h4 className="text-sm font-bold text-slate-300">Solicitudes Pendientes</h4>
+                            {requests.length === 0 ? (
+                                <div className="text-center py-10 bg-slate-950/30 rounded-lg border border-slate-800 border-dashed text-slate-500 text-sm">
+                                    No hay solicitudes pendientes.
+                                </div>
+                            ) : (
+                                <div className="space-y-2">
+                                    {requests.map(req => (
+                                        <div key={req.id} className="flex items-center justify-between p-4 bg-slate-950 border border-slate-800 rounded-xl">
+                                            <div>
+                                                <p className="font-bold text-white text-sm">{req.userName}</p>
+                                                <p className="text-xs text-slate-500">Quiere unirse al grupo</p>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    onClick={() => handleAcceptRequest(req)}
+                                                    className="px-3 py-1.5 bg-green-600 hover:bg-green-500 text-white text-xs font-bold rounded-lg transition-colors shadow-lg shadow-green-900/20"
+                                                >
+                                                    Aceptar
+                                                </button>
+                                                <button
+                                                    onClick={() => handleRejectRequest(req.id)}
+                                                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold rounded-lg transition-colors border border-slate-700"
+                                                >
+                                                    Rechazar
                                                 </button>
                                             </div>
                                         </div>
-                                    </form>
-
-                                    {/* Add Member Section */}
-                                    <div className="space-y-2">
-                                        <label className="text-sm font-medium text-slate-300">Añadir Miembros</label>
-                                        <div className="relative">
-                                            <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
-                                            <input
-                                                type="text"
-                                                value={searchTerm}
-                                                onChange={(e) => handleSearchUsers(e.target.value)}
-                                                placeholder="Buscar por nombre (min 3 letras)..."
-                                                className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
-                                            />
-                                        </div>
-                                        {/* Search Results Dropdown */}
-                                        {searchTerm.length >= 3 && (
-                                            <div className="bg-slate-950 border border-slate-800 rounded-lg mt-2 max-h-40 overflow-y-auto">
-                                                {isSearching ? (
-                                                    <div className="p-3 text-center text-gray-500 text-sm">Buscando...</div>
-                                                ) : searchResults.length === 0 ? (
-                                                    <div className="p-3 text-center text-gray-500 text-sm">No se encontraron usuarios.</div>
-                                                ) : (
-                                                    searchResults.map(u => (
-                                                        <button
-                                                            key={u.id}
-                                                            onClick={() => addMember(u)}
-                                                            className="w-full text-left p-3 hover:bg-slate-800 flex items-center gap-3 transition-colors"
-                                                        >
-                                                            <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-xs font-bold text-slate-400">
-                                                                {u.displayName?.slice(0, 2).toUpperCase()}
-                                                            </div>
-                                                            <span className="text-sm text-slate-300">{u.displayName}</span>
-                                                            <UserPlus className="w-4 h-4 ml-auto text-blue-500" />
-                                                        </button>
-                                                    ))
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* Members List */}
-                                    <div className="space-y-4">
-                                        <div className="flex items-center justify-between">
-                                            <label className="text-sm font-medium text-slate-300">Miembros ({members.length})</label>
-                                        </div>
-
-                                        {isLoadingMembers ? (
-                                            <div className="flex justify-center py-8">
-                                                <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
-                                            </div>
-                                        ) : MembersList(members, admins, user?.uid, toggleAdmin, removeMember)}
-
-                                        {/* Danger Zone */}
-                                        {(userData?.role === 'superadmin' || (user && groupData?.adminIds.includes(user.uid))) && (
-                                            <div className="mt-8 pt-6 border-t border-red-900/30">
-                                                <h4 className="text-sm font-bold text-red-500 mb-2 flex items-center gap-2">
-                                                    <AlertTriangle className="w-4 h-4" />
-                                                    Zona de Peligro
-                                                </h4>
-                                                <div className="bg-red-950/10 border border-red-900/20 rounded-lg p-4 flex items-center justify-between gap-4">
-                                                    <div className="text-xs text-red-400">
-                                                        <p className="font-bold">Eliminar este grupo</p>
-                                                        <p className="opacity-80">Esta acción no se puede deshacer. Se borrarán todos los datos.</p>
-                                                    </div>
-                                                    <button
-                                                        onClick={handleDeleteGroup}
-                                                        className="px-3 py-2 bg-red-900/20 hover:bg-red-900/40 text-red-500 border border-red-900/30 rounded-lg text-xs font-bold transition-colors flex items-center gap-2"
-                                                    >
-                                                        <Trash2 className="w-4 h-4" />
-                                                        Eliminar Grupo
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-                                </>
-                            ) : (
-                                // REQUESTS TAB
-                                <div className="space-y-4">
-                                    <h4 className="text-sm font-bold text-slate-300">Solicitudes Pendientes</h4>
-                                    {requests.length === 0 ? (
-                                        <div className="text-center py-10 bg-slate-950/30 rounded-lg border border-slate-800 border-dashed text-slate-500 text-sm">
-                                            No hay solicitudes pendientes.
-                                        </div>
-                                    ) : (
-                                        <div className="space-y-2">
-                                            {requests.map(req => (
-                                                <div key={req.id} className="flex items-center justify-between p-4 bg-slate-950 border border-slate-800 rounded-xl">
-                                                    <div>
-                                                        <p className="font-bold text-white text-sm">{req.userName}</p>
-                                                        <p className="text-xs text-slate-500">Quiere unirse al grupo</p>
-                                                    </div>
-                                                    <div className="flex items-center gap-2">
-                                                        <button
-                                                            onClick={() => handleAcceptRequest(req)}
-                                                            className="px-3 py-1.5 bg-green-600 hover:bg-green-500 text-white text-xs font-bold rounded-lg transition-colors shadow-lg shadow-green-900/20"
-                                                        >
-                                                            Aceptar
-                                                        </button>
-                                                        <button
-                                                            onClick={() => handleRejectRequest(req.id)}
-                                                            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-bold rounded-lg transition-colors border border-slate-700"
-                                                        >
-                                                            Rechazar
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
+                                    ))}
                                 </div>
                             )}
-                        </>
+                        </div>
                     )}
+
                 </div>
             </div>
-        </div>
+        </div >
     );
 }
 
