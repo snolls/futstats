@@ -42,7 +42,7 @@ export function UserActions({ user, currentUser, onDelete, onRoleUpdate, onOpenD
     const canPromoteToAdmin = isSuperAdmin || (isAdmin && user.role === 'user');
     const canDemoteToUser = isSuperAdmin || (isAdmin && user.role === 'admin');
     const canManageDebt = isSuperAdmin || isAdmin;
-    const canDelete = !isSelf && (isSuperAdmin || (isAdmin && user.role === 'user'));
+    const canDelete = !isSelf && (isSuperAdmin || (isAdmin && user.role === 'guest'));
 
     return (
         <div className="flex flex-wrap items-center justify-end gap-1">
@@ -149,7 +149,7 @@ export default function UserCard({ user, currentUser, onDelete, onRoleUpdate, on
     const handleReview = (e: any, action: 'approve' | 'reject') => {
         e.stopPropagation();
         // Fallback: If no specific handler, try standard role update for approve
-        if (onRoleUpdate && action === 'approve') {
+        if (action === 'approve') {
             // We can't easily clear the status via simple role update unless we change that function signature.
             // We'll rely on a specialized prop OR the parent (UserDirectory) needs to be updated to accept implicit approval.
             // For now, let's assume onRoleUpdate might handle it or we need a new prop.

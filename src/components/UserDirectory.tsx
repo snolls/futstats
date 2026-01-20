@@ -211,6 +211,12 @@ export default function UserDirectory({ currentUser }: UserDirectoryProps) {
     };
 
     const handleDeleteUser = async (userId: string) => {
+        const userToDelete = users.find(u => u.id === userId);
+        if (currentUser.role !== 'superadmin' && userToDelete?.role !== 'guest') {
+            alert("No tienes permisos para eliminar usuarios registrados.");
+            return;
+        }
+
         confirmAction(
             "Eliminar Usuario",
             "¿Estás seguro de que deseas eliminar este usuario? Esta acción es irreversible y eliminará todos sus datos, incluyendo estadísticas y membresías.",
