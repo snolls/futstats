@@ -1,11 +1,12 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { X, Calendar, Wallet, CheckCircle2, AlertTriangle, Plus, Minus, Loader2, History, RotateCcw, Pencil, Save } from 'lucide-react';
+import { X, Calendar, Wallet, CheckCircle2, AlertTriangle, Plus, Minus, Loader2, History, RotateCcw, Pencil, Save, Users } from 'lucide-react';
 import { usePlayerDebts } from '@/hooks/usePlayerDebts';
 import { AppUserCustomData } from '@/types/user';
 import { db } from '@/lib/firebase';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, getDocs, collection, query, where, arrayUnion, arrayRemove } from 'firebase/firestore';
+import { useAuthContext } from '@/context/AuthContext';
 
 interface UserDetailModalProps {
     isOpen: boolean;
@@ -27,12 +28,19 @@ export default function UserDetailModal({ isOpen, onClose, user, onUpdate }: Use
         processSmartPayment
     } = usePlayerDebts(user?.id);
 
+    // Auth Context for valid groups to manage
+    const { user: currentUser, userData: currentUserData } = useAuthContext();
+
     const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending');
     const [processingId, setProcessingId] = useState<string | null>(null);
     const [manualDebtInput, setManualDebtInput] = useState("");
     const [isEditingName, setIsEditingName] = useState(false);
     const [editNameValue, setEditNameValue] = useState("");
     const [isSavingName, setIsSavingName] = useState(false);
+
+    // Group Management State
+    const [manageableGroups, setManageableGroups] = useState<{ id: string, name: string }[]>([]);
+    const [isFetchingGroups, setIsFetchingGroups] = useState(false);
 
     // Estado para el diálogo de confirmación de pago inteligente
     const [showPaymentConfirm, setShowPaymentConfirm] = useState(false);
@@ -111,6 +119,54 @@ export default function UserDetailModal({ isOpen, onClose, user, onUpdate }: Use
             setShowPaymentConfirm(false);
         } catch (error) {
             console.error("Error processing smart payment:", error);
+        } finally {
+            setProcessingId(null);
+        }
+    };
+
+    // --- Group Management Logic --- //
+    const fetchManageableGroups = async () => {
+        if (!currentUser || isFetchingGroups || manageableGroups.length > 0) return;
+        setIsFetchingGroups(true);
+        try {
+            let q;
+            if (currentUserData?.role === 'superadmin') {
+                q = query(collection(db, "groups"));
+            } else {
+                q = query(collection(db, "groups"), where("adminIds", "array-contains", currentUser.uid));
+            }
+            const snap = await getDocs(q);
+            setManageableGroups(snap.docs.map(d => ({ id: d.id, name: d.data().name })));
+        } catch (err) {
+            console.error("Error fetching groups for detail modal", err);
+        } finally {
+            setIsFetchingGroups(false);
+        }
+    };
+
+    // Load groups when modal opens
+    if (isOpen && manageableGroups.length === 0 && !isFetchingGroups) {
+        fetchManageableGroups();
+    }
+
+    const toggleGroupAssociation = async (groupId: string, isAssociated: boolean) => {
+        setProcessingId(`group-${groupId}`);
+        try {
+            const userRef = doc(db, "users", user.id);
+            if (isAssociated) {
+                // Remove
+                await updateDoc(userRef, {
+                    associatedGroups: arrayRemove(groupId)
+                });
+            } else {
+                // Add
+                await updateDoc(userRef, {
+                    associatedGroups: arrayUnion(groupId)
+                });
+            }
+            onUpdate();
+        } catch (err) {
+            console.error("Error toggling group:", err);
         } finally {
             setProcessingId(null);
         }
@@ -268,6 +324,10 @@ export default function UserDetailModal({ isOpen, onClose, user, onUpdate }: Use
                                         Invitado
                                     </span>
                                 )}
+                                {/* Display Groups Badge */}
+                                <div className="flex flex-wrap gap-1">
+                                    {(user.associatedGroups || []).length > 0 && <span className="text-[10px] text-slate-500 bg-slate-800 px-1.5 rounded">{user.associatedGroups?.length} Grupos</span>}
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -449,6 +509,40 @@ export default function UserDetailModal({ isOpen, onClose, user, onUpdate }: Use
                             </div>
                         </div>
                     </div>
+
+                    {/* Sección de Grupos (Solo visible para Admin/Superadmin gestionando invitados/usuarios) */}
+                    {manageableGroups.length > 0 && (
+                        <div className="space-y-3 pt-4 border-t border-slate-800">
+                            <h4 className="text-sm font-bold text-slate-300 flex items-center gap-2">
+                                <Users className="w-4 h-4 text-blue-400" />
+                                Membresía en Grupos
+                            </h4>
+                            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                {manageableGroups.map(group => {
+                                    const isAssociated = user.associatedGroups?.includes(group.id);
+                                    const isLoading = processingId === `group-${group.id}`;
+                                    return (
+                                        <label key={group.id} className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all ${isAssociated ? 'bg-blue-900/20 border-blue-500/50' : 'bg-slate-900 border-slate-700 hover:border-slate-600'}`}>
+                                            <div className="flex items-center gap-3">
+                                                <div className={`w-4 h-4 rounded border flex items-center justify-center ${isAssociated ? 'bg-blue-500 border-blue-500' : 'border-slate-500'}`}>
+                                                    {isAssociated && <CheckCircle2 className="w-3 h-3 text-white" />}
+                                                </div>
+                                                <span className={`text-sm font-medium ${isAssociated ? 'text-blue-100' : 'text-slate-400'}`}>{group.name}</span>
+                                            </div>
+                                            {isLoading && <Loader2 className="w-4 h-4 animate-spin text-blue-500" />}
+                                            <input
+                                                type="checkbox"
+                                                className="hidden"
+                                                checked={!!isAssociated}
+                                                onChange={() => toggleGroupAssociation(group.id, !!isAssociated)}
+                                                disabled={isLoading}
+                                            />
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
 
                 </div>
             </div>

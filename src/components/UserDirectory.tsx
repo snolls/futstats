@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { collection, query, where, getDocs, documentId, deleteDoc, doc, updateDoc, increment } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { AppUserCustomData } from "@/types/user";
-import { User as UserIcon, Shield, ShieldCheck, Trash2, LayoutGrid, List as ListIcon, Banknote, AlertTriangle, CheckCircle2, UserPlus } from "lucide-react"; // UserPlus added
+import { User as UserIcon, Shield, ShieldCheck, Trash2, LayoutGrid, List as ListIcon, Banknote, AlertTriangle, CheckCircle2, UserPlus, Search } from "lucide-react"; // UserPlus added
 import clsx from "clsx";
 import UserDetailModal from "./UserDetailModal";
 import ConfirmationModal from "./ConfirmationModal";
@@ -13,6 +13,13 @@ import CreateGuestModal from "./CreateGuestModal"; // Imported
 
 interface UserDirectoryProps {
     currentUser: { uid: string; role?: string; displayName?: string | null };
+}
+
+interface GroupData {
+    id: string;
+    name: string;
+    members?: string[];
+    adminIds?: string[];
 }
 
 interface EnrichedUser extends AppUserCustomData {
@@ -26,6 +33,9 @@ export default function UserDirectory({ currentUser }: UserDirectoryProps) {
     const [loading, setLoading] = useState(true);
     const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
     const [showDebtorsOnly, setShowDebtorsOnly] = useState(false);
+    const [searchTerm, setSearchTerm] = useState("");
+    const [groups, setGroups] = useState<GroupData[]>([]);
+    const [selectedGroupId, setSelectedGroupId] = useState<string>("");
 
     // Guest States
     const [showGuests, setShowGuests] = useState(true);
@@ -49,33 +59,37 @@ export default function UserDirectory({ currentUser }: UserDirectoryProps) {
             let usersList: (AppUserCustomData & { id: string })[] = [];
 
             // 1. Fetch Users
+            // 1. Fetch Users
             if (currentUser.role === "superadmin") {
+                // Superadmin fetches ALL groups and ALL users
+                const groupsQ = query(collection(db, "groups"));
+                const groupsSnap = await getDocs(groupsQ);
+                const loadedGroups = groupsSnap.docs.map(d => ({ id: d.id, ...d.data() } as GroupData));
+                setGroups(loadedGroups);
+
                 const q = query(collection(db, "users"));
                 const snap = await getDocs(q);
                 usersList = snap.docs.map((d) => ({ id: d.id, ...d.data() } as AppUserCustomData & { id: string }));
             } else {
-                // Admin: Fetch Group Members
-                // Also, we really shoud fetch guests that might not be in groups yet if we created them.
-                // For now, keeping original logic safe, but maybe adding a check for guests?
-                // Let's assume guests are added to groups or visible globally for now to minimize logic breakage 
-                // until user complains.
-                // ACTUALLY: Let's fetch ALL guests for now purely for MVP visibility if the user is an admin.
-                // Or maybe just stick to group logic.
-
+                // Admin: Fetch Groups where I am Admin
                 const groupsQ = query(collection(db, "groups"), where("adminIds", "array-contains", currentUser.uid));
                 const groupsSnap = await getDocs(groupsQ);
+                const loadedGroups = groupsSnap.docs.map(d => ({ id: d.id, ...d.data() } as GroupData));
+                setGroups(loadedGroups);
 
                 const memberSet = new Set<string>();
-                groupsSnap.forEach((doc) => {
-                    const data = doc.data();
-                    const members = data.members || [];
-                    const admins = data.adminIds || [];
+                const myGroupIds: string[] = [];
+
+                loadedGroups.forEach((group) => {
+                    myGroupIds.push(group.id);
+                    const members = group.members || [];
+                    const admins = group.adminIds || [];
                     members.forEach((m: string) => memberSet.add(m));
                     admins.forEach((a: string) => memberSet.add(a));
                 });
 
+                // Fetch Regular Members
                 const uids = Array.from(memberSet);
-
                 if (uids.length > 0) {
                     const chunkSize = 10;
                     for (let i = 0; i < uids.length; i += chunkSize) {
@@ -88,9 +102,25 @@ export default function UserDirectory({ currentUser }: UserDirectoryProps) {
                     }
                 }
 
-                // Fetch Guests explicitly if we want (optional, but good for "New Guest" visibility)
-                // const guestQ = query(collection(db, "users"), where("role", "==", "guest"));
-                // ... logic to merge ...
+                // Fetch Users/Guests associated with these groups (via associatedGroups field)
+                // Note: array-contains-any limits to 10 values. If an admin has > 10 groups, we chunk requests.
+                if (myGroupIds.length > 0) {
+                    const groupChunks = [];
+                    for (let i = 0; i < myGroupIds.length; i += 10) {
+                        groupChunks.push(myGroupIds.slice(i, i + 10));
+                    }
+
+                    for (const chunk of groupChunks) {
+                        const guestQ = query(collection(db, "users"), where("associatedGroups", "array-contains-any", chunk));
+                        const guestSnap = await getDocs(guestQ);
+                        guestSnap.forEach((d) => {
+                            // Avoid duplicates
+                            if (!usersList.find(u => u.id === d.id)) {
+                                usersList.push({ id: d.id, ...d.data() } as AppUserCustomData & { id: string });
+                            }
+                        });
+                    }
+                }
             }
 
             // 2. Calculate Debt
@@ -238,7 +268,26 @@ export default function UserDirectory({ currentUser }: UserDirectoryProps) {
 
     const filteredUsers = users.filter(u => {
         if (showDebtorsOnly && u.totalDebt <= 0) return false;
-        if (!showGuests && u.role === 'guest') return false;
+        if (!showGuests && (u.role === 'guest' || u.isGuest)) return false; // Robust check
+
+        // Group Filter
+        if (selectedGroupId) {
+            // Check implicit membership via groups data
+            const group = groups.find(g => g.id === selectedGroupId);
+            const isMember = group?.members?.includes(u.id) || group?.adminIds?.includes(u.id);
+            // Check explicit association via user data
+            const isAssociated = u.associatedGroups?.includes(selectedGroupId);
+
+            if (!isMember && !isAssociated) return false;
+        }
+
+        if (searchTerm) {
+            const term = searchTerm.toLowerCase();
+            const nameMatch = u.displayName?.toLowerCase().includes(term);
+            const emailMatch = u.email?.toLowerCase().includes(term);
+            if (!nameMatch && !emailMatch) return false;
+        }
+
         return true;
     });
 
@@ -276,62 +325,91 @@ export default function UserDirectory({ currentUser }: UserDirectoryProps) {
                             Total: {users.length}
                         </span>
                     </h2>
-                    <p className="text-sm text-gray-400">
+
+                    {/* Group Selector */}
+                    {groups.length > 0 && (
+                        <select
+                            value={selectedGroupId}
+                            onChange={(e) => setSelectedGroupId(e.target.value)}
+                            className="mt-2 bg-gray-900 border border-gray-800 rounded-lg px-3 py-1.5 text-sm text-gray-300 focus:border-blue-500 outline-none w-full sm:w-auto"
+                        >
+                            <option value="">Todos mis grupos</option>
+                            {groups.map(g => (
+                                <option key={g.id} value={g.id}>{g.name}</option>
+                            ))}
+                        </select>
+                    )}
+
+                    <p className="text-sm text-gray-400 mt-1">
                         {users.length} usuarios encontrados
                         {showDebtorsOnly && <span className="text-amber-500 font-bold ml-1">({filteredUsers.length} con deuda)</span>}
                     </p>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3">
-                    {/* Botón Nuevo Invitado */}
-                    <button
-                        onClick={() => setIsGuestModalOpen(true)}
-                        className="flex items-center gap-2 bg-purple-600 hover:bg-purple-500 text-white px-3 py-2 rounded-lg text-sm font-bold transition-all shadow-lg shadow-purple-900/20"
-                    >
-                        <UserPlus className="w-4 h-4" />
-                        <span className="hidden sm:inline">Nuevo Invitado</span>
-                    </button>
-
-                    <div className="h-8 w-px bg-gray-800 mx-1 hidden sm:block"></div>
-
-                    {/* Filtros */}
-                    <label className="flex items-center gap-2 cursor-pointer select-none bg-gray-900 border border-gray-800 px-3 py-2 rounded-lg hover:border-gray-700 transition-colors">
+                <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                    {/* Search Input */}
+                    <div className="relative w-full sm:w-64">
+                        <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-500" />
                         <input
-                            type="checkbox"
-                            checked={showDebtorsOnly}
-                            onChange={(e) => setShowDebtorsOnly(e.target.checked)}
-                            className="w-4 h-4 rounded border-gray-600 text-green-500 focus:ring-green-500/20 bg-gray-800"
+                            type="text"
+                            placeholder="Buscar jugador..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full bg-gray-900 border border-gray-800 rounded-lg pl-9 pr-4 py-2 text-sm text-white focus:border-blue-500 outline-none transition-colors"
                         />
-                        <span className={clsx("text-sm font-medium", showDebtorsOnly ? "text-white" : "text-gray-400")}>
-                            Solo Deudores
-                        </span>
-                    </label>
+                    </div>
 
-                    <label className="flex items-center gap-2 cursor-pointer select-none bg-gray-900 border border-gray-800 px-3 py-2 rounded-lg hover:border-gray-700 transition-colors" title="Mostrar/Ocultar Invitados">
-                        <input
-                            type="checkbox"
-                            checked={showGuests}
-                            onChange={e => setShowGuests(e.target.checked)}
-                            className="w-4 h-4 rounded border-gray-600 text-purple-500 focus:ring-purple-500/20 bg-gray-800"
-                        />
-                        <span className={clsx("text-sm font-medium", showGuests ? "text-purple-400" : "text-gray-500")}>
-                            Invitados
-                        </span>
-                    </label>
+                    <div className="flex flex-wrap items-center gap-3">
+                        {/* Botón Nuevo Invitado */}
+                        <button
+                            onClick={() => setIsGuestModalOpen(true)}
+                            className="flex items-center gap-2 bg-purple-600 hover:bg-purple-500 text-white px-3 py-2 rounded-lg text-sm font-bold transition-all shadow-lg shadow-purple-900/20"
+                        >
+                            <UserPlus className="w-4 h-4" />
+                            <span className="hidden sm:inline">Nuevo Invitado</span>
+                        </button>
 
-                    <div className="flex bg-gray-900 border border-gray-800 rounded-lg p-1">
-                        <button
-                            onClick={() => setViewMode("grid")}
-                            className={clsx("p-2 rounded-md transition-colors", viewMode === "grid" ? "bg-gray-800 text-white" : "text-gray-500 hover:text-gray-300")}
-                        >
-                            <LayoutGrid className="w-5 h-5" />
-                        </button>
-                        <button
-                            onClick={() => setViewMode("list")}
-                            className={clsx("p-2 rounded-md transition-colors", viewMode === "list" ? "bg-gray-800 text-white" : "text-gray-500 hover:text-gray-300")}
-                        >
-                            <ListIcon className="w-5 h-5" />
-                        </button>
+                        <div className="h-8 w-px bg-gray-800 mx-1 hidden sm:block"></div>
+
+                        {/* Filtros */}
+                        <label className="flex items-center gap-2 cursor-pointer select-none bg-gray-900 border border-gray-800 px-3 py-2 rounded-lg hover:border-gray-700 transition-colors">
+                            <input
+                                type="checkbox"
+                                checked={showDebtorsOnly}
+                                onChange={(e) => setShowDebtorsOnly(e.target.checked)}
+                                className="w-4 h-4 rounded border-gray-600 text-green-500 focus:ring-green-500/20 bg-gray-800"
+                            />
+                            <span className={clsx("text-sm font-medium", showDebtorsOnly ? "text-white" : "text-gray-400")}>
+                                Solo Deudores
+                            </span>
+                        </label>
+
+                        <label className="flex items-center gap-2 cursor-pointer select-none bg-gray-900 border border-gray-800 px-3 py-2 rounded-lg hover:border-gray-700 transition-colors" title="Mostrar/Ocultar Invitados">
+                            <input
+                                type="checkbox"
+                                checked={showGuests}
+                                onChange={e => setShowGuests(e.target.checked)}
+                                className="w-4 h-4 rounded border-gray-600 text-purple-500 focus:ring-purple-500/20 bg-gray-800"
+                            />
+                            <span className={clsx("text-sm font-medium", showGuests ? "text-purple-400" : "text-gray-500")}>
+                                Invitados
+                            </span>
+                        </label>
+
+                        <div className="flex bg-gray-900 border border-gray-800 rounded-lg p-1">
+                            <button
+                                onClick={() => setViewMode("grid")}
+                                className={clsx("p-2 rounded-md transition-colors", viewMode === "grid" ? "bg-gray-800 text-white" : "text-gray-500 hover:text-gray-300")}
+                            >
+                                <LayoutGrid className="w-5 h-5" />
+                            </button>
+                            <button
+                                onClick={() => setViewMode("list")}
+                                className={clsx("p-2 rounded-md transition-colors", viewMode === "list" ? "bg-gray-800 text-white" : "text-gray-500 hover:text-gray-300")}
+                            >
+                                <ListIcon className="w-5 h-5" />
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>

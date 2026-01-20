@@ -258,17 +258,17 @@ export default function EditGroupModal({ isOpen, onClose, groupData, onUpdate }:
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
             <div
-                className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
+                className="absolute inset-0 bg-black/80 backdrop-blur-sm transition-opacity"
                 onClick={onClose}
             />
 
-            <div className="relative w-[95vw] max-w-2xl bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl transform transition-all my-8 flex flex-col max-h-[85vh]">
-                <div className="flex items-center justify-between p-6 border-b border-gray-800 shrink-0">
+            <div className="relative w-[95vw] max-w-2xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl transform transition-all my-8 flex flex-col max-h-[85vh]">
+                <div className="flex items-center justify-between p-6 border-b border-slate-800 shrink-0">
                     <h3 className="text-xl font-semibold text-white flex items-center gap-2">
                         <Users className="w-5 h-5 text-blue-500" />
                         Gestionar Grupo
                     </h3>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-gray-800">
+                    <button onClick={onClose} className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800">
                         <X className="w-5 h-5" />
                     </button>
                 </div>
@@ -283,13 +283,13 @@ export default function EditGroupModal({ isOpen, onClose, groupData, onUpdate }:
                     {/* Rename Section */}
                     <form onSubmit={handleUpdateName} className="space-y-4">
                         <div className="space-y-2">
-                            <label className="text-sm font-medium text-gray-300">Nombre del Grupo</label>
+                            <label className="text-sm font-medium text-slate-300">Nombre del Grupo</label>
                             <div className="flex gap-2">
                                 <input
                                     type="text"
                                     value={name}
                                     onChange={(e) => setName(e.target.value)}
-                                    className="flex-1 bg-gray-950 border border-gray-800 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                    className="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
                                 />
                                 <button
                                     type="submit"
@@ -305,20 +305,20 @@ export default function EditGroupModal({ isOpen, onClose, groupData, onUpdate }:
 
                     {/* Add Member Section */}
                     <div className="space-y-2">
-                        <label className="text-sm font-medium text-gray-300">Añadir Miembros</label>
+                        <label className="text-sm font-medium text-slate-300">Añadir Miembros</label>
                         <div className="relative">
-                            <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-500" />
+                            <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
                             <input
                                 type="text"
                                 value={searchTerm}
                                 onChange={(e) => handleSearchUsers(e.target.value)}
                                 placeholder="Buscar por nombre (min 3 letras)..."
-                                className="w-full bg-gray-950 border border-gray-800 rounded-lg pl-10 pr-4 py-2 text-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                                className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
                             />
                         </div>
                         {/* Search Results Dropdown */}
                         {searchTerm.length >= 3 && (
-                            <div className="bg-gray-950 border border-gray-800 rounded-lg mt-2 max-h-40 overflow-y-auto">
+                            <div className="bg-slate-950 border border-slate-800 rounded-lg mt-2 max-h-40 overflow-y-auto">
                                 {isSearching ? (
                                     <div className="p-3 text-center text-gray-500 text-sm">Buscando...</div>
                                 ) : searchResults.length === 0 ? (
@@ -328,12 +328,12 @@ export default function EditGroupModal({ isOpen, onClose, groupData, onUpdate }:
                                         <button
                                             key={u.id}
                                             onClick={() => addMember(u)}
-                                            className="w-full text-left p-3 hover:bg-gray-800 flex items-center gap-3 transition-colors"
+                                            className="w-full text-left p-3 hover:bg-slate-800 flex items-center gap-3 transition-colors"
                                         >
-                                            <div className="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center text-xs font-bold text-gray-400">
+                                            <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-xs font-bold text-slate-400">
                                                 {u.displayName?.slice(0, 2).toUpperCase()}
                                             </div>
-                                            <span className="text-sm text-gray-300">{u.displayName}</span>
+                                            <span className="text-sm text-slate-300">{u.displayName}</span>
                                             <UserPlus className="w-4 h-4 ml-auto text-blue-500" />
                                         </button>
                                     ))
@@ -345,7 +345,7 @@ export default function EditGroupModal({ isOpen, onClose, groupData, onUpdate }:
                     {/* Members List */}
                     <div className="space-y-4">
                         <div className="flex items-center justify-between">
-                            <label className="text-sm font-medium text-gray-300">Miembros ({members.length})</label>
+                            <label className="text-sm font-medium text-slate-300">Miembros ({members.length})</label>
                         </div>
 
                         {isLoadingMembers ? (
@@ -368,7 +368,7 @@ function MembersList(
     onRemove: (id: string) => void
 ) {
     if (members.length === 0) {
-        return <p className="text-gray-500 text-sm text-center py-4">Este grupo aún no tiene miembros.</p>;
+        return <p className="text-slate-500 text-sm text-center py-4">Este grupo aún no tiene miembros.</p>;
     }
 
     return (
@@ -378,16 +378,16 @@ function MembersList(
                 const isMe = member.id === currentUserId;
 
                 return (
-                    <div key={member.id} className="flex items-center justify-between p-3 bg-gray-950/50 rounded-lg border border-gray-800/50">
+                    <div key={member.id} className="flex items-center justify-between p-3 bg-slate-950/50 rounded-lg border border-slate-800/50">
                         <div className="flex items-center gap-3">
-                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${isAdmin ? 'bg-blue-500/20 text-blue-400' : 'bg-gray-800 text-gray-400'}`}>
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${isAdmin ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-800 text-slate-400'}`}>
                                 {member.displayName?.slice(0, 2).toUpperCase() || "??"}
                             </div>
                             <div>
-                                <p className={`text-sm font-medium ${isAdmin ? 'text-blue-400' : 'text-gray-300'}`}>
+                                <p className={`text-sm font-medium ${isAdmin ? 'text-blue-400' : 'text-slate-300'}`}>
                                     {member.displayName || "Usuario"} {isMe && "(Tú)"}
                                 </p>
-                                <p className="text-xs text-gray-600">{member.email}</p>
+                                <p className="text-xs text-slate-600">{member.email}</p>
                             </div>
                         </div>
 
@@ -396,7 +396,7 @@ function MembersList(
                             <button
                                 onClick={() => onToggleAdmin(member.id)}
                                 title={isAdmin ? "Quitar Admin" : "Hacer Admin"}
-                                className={`p-2 rounded-lg transition-colors ${isAdmin ? 'text-blue-400 hover:bg-blue-500/10' : 'text-gray-600 hover:text-blue-400 hover:bg-gray-800'}`}
+                                className={`p-2 rounded-lg transition-colors ${isAdmin ? 'text-blue-400 hover:bg-blue-500/10' : 'text-slate-600 hover:text-blue-400 hover:bg-slate-800'}`}
                             >
                                 {isAdmin ? <ShieldCheck className="w-4 h-4" /> : <Shield className="w-4 h-4" />}
                             </button>
@@ -405,7 +405,7 @@ function MembersList(
                             <button
                                 onClick={() => onRemove(member.id)}
                                 title="Eliminar del grupo"
-                                className="p-2 text-gray-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                                className="p-2 text-slate-600 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
                             >
                                 <Trash2 className="w-4 h-4" />
                             </button>

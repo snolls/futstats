@@ -13,6 +13,7 @@ export interface AppUserCustomData {
   email?: string | null;
   manualDebt?: number;
   isGuest?: boolean;
+  associatedGroups?: string[];
 }
 
 export interface AppUser extends User {

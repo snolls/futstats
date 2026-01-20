@@ -42,17 +42,17 @@ export default function CreateGuestModal({ isOpen, onClose, onGuestCreated }: Cr
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
             <div
-                className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
+                className="absolute inset-0 bg-black/80 backdrop-blur-sm transition-opacity"
                 onClick={onClose}
             />
 
-            <div className="relative w-full max-w-md bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl transform transition-all flex flex-col">
-                <div className="flex items-center justify-between p-6 border-b border-gray-800">
+            <div className="relative w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl transform transition-all flex flex-col">
+                <div className="flex items-center justify-between p-6 border-b border-slate-800">
                     <h3 className="text-xl font-bold text-white flex items-center gap-2">
                         <UserPlus className="w-5 h-5 text-purple-400" />
                         Nuevo Invitado
                     </h3>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-gray-800 transition-colors">
+                    <button onClick={onClose} className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors">
                         <X className="w-5 h-5" />
                     </button>
                 </div>
@@ -60,20 +60,20 @@ export default function CreateGuestModal({ isOpen, onClose, onGuestCreated }: Cr
                 <form onSubmit={handleSubmit} className="p-6 space-y-6">
                     <div className="space-y-4">
                         <div className="space-y-2">
-                            <label className="text-sm font-medium text-gray-300">Nombre / Alias</label>
+                            <label className="text-sm font-medium text-slate-300">Nombre / Alias</label>
                             <input
                                 type="text"
                                 placeholder="Ej: Primo de Alex"
                                 value={name}
                                 onChange={(e) => setName(e.target.value)}
-                                className="w-full bg-gray-950 border border-gray-800 rounded-lg px-4 py-2.5 text-white focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all outline-none"
+                                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all outline-none"
                                 autoFocus
                             />
                         </div>
 
                         <div className="space-y-2">
-                            <label className="text-sm font-medium text-gray-300 flex items-center gap-2">
-                                <Euro className="w-4 h-4 text-gray-500" />
+                            <label className="text-sm font-medium text-slate-300 flex items-center gap-2">
+                                <Euro className="w-4 h-4 text-slate-500" />
                                 Deuda Inicial (Opcional)
                             </label>
                             <input
@@ -82,9 +82,9 @@ export default function CreateGuestModal({ isOpen, onClose, onGuestCreated }: Cr
                                 step="0.5"
                                 value={initialDebt}
                                 onChange={(e) => setInitialDebt(e.target.value)}
-                                className="w-full bg-gray-950 border border-gray-800 rounded-lg px-4 py-2.5 text-white focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all outline-none"
+                                className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all outline-none"
                             />
-                            <p className="text-xs text-gray-500">
+                            <p className="text-xs text-slate-500">
                                 Positivo = Debe dinero. Negativo = Saldo a Favor.
                             </p>
                         </div>
@@ -94,7 +94,7 @@ export default function CreateGuestModal({ isOpen, onClose, onGuestCreated }: Cr
                         <button
                             type="button"
                             onClick={onClose}
-                            className="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
+                            className="px-4 py-2 text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
                         >
                             Cancelar
                         </button>

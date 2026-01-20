@@ -7,9 +7,10 @@ import { AppUserCustomData } from "@/types/user";
  * 
  * @param displayName Name or alias for the guest
  * @param initialDebt Optional initial debt (positive = debt, negative = credit)
+ * @param associatedGroups Optional list of group IDs this guest belongs to
  * @returns The created user object including the generated ID
  */
-export async function createGuestUser(displayName: string, initialDebt: number = 0): Promise<AppUserCustomData & { id: string }> {
+export async function createGuestUser(displayName: string, initialDebt: number = 0, associatedGroups: string[] = []): Promise<AppUserCustomData & { id: string }> {
     const guestId = `guest_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const email = `${guestId}@futstats.app`; // Dummy email for consistency
     const photoURL = `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=f59e0b&color=fff`; // Amber for guests
@@ -25,7 +26,8 @@ export async function createGuestUser(displayName: string, initialDebt: number =
         debt: initialDebt,
         createdAt: serverTimestamp() as any, // Cast for client-side compat before DB write
         updatedAt: serverTimestamp() as any,
-        isGuest: true // Explicit flag
+        isGuest: true, // Explicit flag
+        associatedGroups: associatedGroups // Link to groups
     };
 
     await setDoc(doc(db, "users", guestId), userData);

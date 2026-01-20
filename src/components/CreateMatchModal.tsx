@@ -202,7 +202,8 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
         try {
             const name = guestNameInput.trim();
             // 1. Create in Firestore via Utility
-            const newGuestData = await createGuestUser(name);
+            // Pass selectedGroupId to link this guest to the current group context
+            const newGuestData = await createGuestUser(name, 0, selectedGroupId ? [selectedGroupId] : []);
 
             // 2. Add to Local State
             const newGuestUser: UserData = {
@@ -356,17 +357,17 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
             <div
-                className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
+                className="absolute inset-0 bg-black/80 backdrop-blur-sm transition-opacity"
                 onClick={onClose}
             />
 
-            <div className="relative w-[95vw] max-w-2xl bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl transform transition-all my-8 flex flex-col max-h-[85vh]">
-                <div className="flex items-center justify-between p-6 border-b border-gray-800 shrink-0">
+            <div className="relative w-[95vw] max-w-2xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl transform transition-all my-8 flex flex-col max-h-[85vh]">
+                <div className="flex items-center justify-between p-6 border-b border-slate-800 shrink-0">
                     <h3 className="text-xl font-semibold text-white flex items-center gap-2">
                         <Calendar className="w-5 h-5 text-green-500" />
                         Nuevo Partido
                     </h3>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-gray-800">
+                    <button onClick={onClose} className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800">
                         <X className="w-5 h-5" />
                     </button>
                 </div>
@@ -381,17 +382,17 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-gray-300 flex items-center gap-2">
+                                <label className="text-sm font-medium text-slate-300 flex items-center gap-2">
                                     <Shield className="w-4 h-4 text-blue-400" />
                                     Grupo
                                 </label>
                                 {isFetchingGroups ? (
-                                    <div className="h-10 bg-gray-800 rounded animate-pulse" />
+                                    <div className="h-10 bg-slate-800 rounded animate-pulse" />
                                 ) : (
                                     <select
                                         value={selectedGroupId}
                                         onChange={(e) => setSelectedGroupId(e.target.value)}
-                                        className="w-full bg-gray-950 border border-gray-800 rounded-lg px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
+                                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
                                         required
                                     >
                                         <option value="" disabled>-- Selecciona un Grupo --</option>
@@ -403,14 +404,14 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                             </div>
 
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-gray-300 flex items-center gap-2">
+                                <label className="text-sm font-medium text-slate-300 flex items-center gap-2">
                                     <Trophy className="w-4 h-4 text-yellow-500" />
                                     Formato ({requiredPlayers} jugadores)
                                 </label>
                                 <select
                                     value={format}
                                     onChange={(e) => setFormat(e.target.value)}
-                                    className="w-full bg-gray-950 border border-gray-800 rounded-lg px-4 py-2.5 text-white focus:ring-2 focus:ring-green-500/20 focus:border-green-500 transition-all outline-none"
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:ring-2 focus:ring-green-500/20 focus:border-green-500 transition-all outline-none"
                                 >
                                     {GAME_FORMATS.map(f => (
                                         <option key={f} value={f}>{f} ({FORMAT_REQUIREMENTS[f]} jugadores)</option>
@@ -421,27 +422,27 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-gray-300">Fecha y Hora</label>
+                                <label className="text-sm font-medium text-slate-300">Fecha y Hora</label>
                                 <input
                                     type="datetime-local"
                                     value={date}
                                     onChange={(e) => setDate(e.target.value)}
-                                    className="w-full bg-gray-950 border border-gray-800 rounded-lg px-4 py-2.5 text-white focus:ring-2 focus:ring-green-500/20 focus:border-green-500 transition-all outline-none [color-scheme:dark]"
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:ring-2 focus:ring-green-500/20 focus:border-green-500 transition-all outline-none [color-scheme:dark]"
                                     required
                                 />
                             </div>
 
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-gray-300">Precio por Persona</label>
+                                <label className="text-sm font-medium text-slate-300">Precio por Persona</label>
                                 <div className="relative">
-                                    <Euro className="absolute left-3 top-2.5 w-5 h-5 text-gray-500" />
+                                    <Euro className="absolute left-3 top-2.5 w-5 h-5 text-slate-500" />
                                     <input
                                         type="number"
                                         min="0"
                                         step="0.5"
                                         value={price}
                                         onChange={(e) => setPrice(e.target.value)}
-                                        className="w-full bg-gray-950 border border-gray-800 rounded-lg pl-10 pr-4 py-2.5 text-white focus:ring-2 focus:ring-green-500/20 focus:border-green-500 transition-all outline-none"
+                                        className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-10 pr-4 py-2.5 text-white focus:ring-2 focus:ring-green-500/20 focus:border-green-500 transition-all outline-none"
                                         placeholder="0.00"
                                         required
                                     />
@@ -451,7 +452,7 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
 
                         <div className="space-y-3">
                             <div className="flex items-center justify-between">
-                                <label className="text-sm font-medium text-gray-300 flex items-center gap-2">
+                                <label className="text-sm font-medium text-slate-300 flex items-center gap-2">
                                     <Users className="w-4 h-4" />
                                     Convocatoria
                                 </label>
@@ -464,7 +465,7 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                                 <button
                                     type="button"
                                     onClick={() => setShowGuestInput(true)}
-                                    className="w-full py-2 bg-gray-950 border border-gray-800 border-dashed rounded-lg text-gray-400 hover:text-white hover:border-gray-600 transition-colors flex items-center justify-center gap-2 text-sm"
+                                    className="w-full py-2 bg-slate-950 border border-slate-700 border-dashed rounded-lg text-slate-400 hover:text-white hover:border-slate-600 transition-colors flex items-center justify-center gap-2 text-sm"
                                 >
                                     <UserPlus className="w-4 h-4" />
                                     Nuevo Invitado
@@ -472,11 +473,11 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                             ) : (
                                 <div className="flex gap-2 mb-2 animate-in fade-in slide-in-from-top-1 duration-200">
                                     <div className="relative flex-1">
-                                        <UserPlus className="absolute left-3 top-2.5 w-4 h-4 text-gray-500" />
+                                        <UserPlus className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
                                         <input
                                             type="text"
                                             placeholder="Nombre Invitado..."
-                                            className="w-full bg-gray-900 border border-gray-800 rounded-lg pl-9 pr-3 py-2 text-sm text-white focus:border-green-500 outline-none"
+                                            className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-sm text-white focus:border-green-500 outline-none"
                                             value={guestNameInput}
                                             onChange={e => setGuestNameInput(e.target.value)}
                                             onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleQuickGuest())}
@@ -497,7 +498,7 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                                     <button
                                         type="button"
                                         onClick={() => setShowGuestInput(false)}
-                                        className="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-400 rounded-lg"
+                                        className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-lg"
                                         disabled={isCreatingGuest}
                                     >
                                         <X className="w-4 h-4" />
@@ -506,7 +507,7 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                             )}
 
                             {!selectedGroupId ? (
-                                <div className="bg-gray-900/50 border border-gray-800 border-dashed rounded-lg p-8 flex flex-col items-center justify-center text-gray-500">
+                                <div className="bg-slate-900/50 border border-slate-800 border-dashed rounded-lg p-8 flex flex-col items-center justify-center text-slate-500">
                                     <Shield className="w-8 h-8 mb-2 opacity-20" />
                                     <p className="text-sm">Selecciona un grupo primero</p>
                                 </div>
@@ -515,7 +516,7 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                                     <Loader2 className="w-6 h-6 animate-spin text-green-500" />
                                 </div>
                             ) : availableUsers.length === 0 ? (
-                                <div className="bg-gray-900/50 border border-gray-800 border-dashed rounded-lg p-8 text-center text-gray-500 text-sm">
+                                <div className="bg-slate-900/50 border border-slate-800 border-dashed rounded-lg p-8 text-center text-slate-500 text-sm">
                                     No se encontraron jugadores en este grupo.
                                 </div>
                             ) : (
@@ -560,19 +561,19 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                                                 key={user.id}
                                                 onClick={() => toggleUser(user.id)}
                                                 className={`
-                          flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all select-none
-                          ${isSelected
+                                                    flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all select-none
+                                                    ${isSelected
                                                         ? 'bg-green-500/10 border-green-500/50'
-                                                        : 'bg-gray-950 border-gray-800 hover:border-gray-700'
+                                                        : 'bg-slate-950 border-slate-800 hover:border-slate-700'
                                                     }
-                        `}
+                                                `}
                                             >
                                                 <div className="flex items-center gap-3">
-                                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${isSelected ? 'bg-green-500 text-black' : 'bg-gray-800 text-gray-400'}`}>
+                                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${isSelected ? 'bg-green-500 text-black' : 'bg-slate-800 text-slate-400'}`}>
                                                         {user.displayName ? user.displayName.slice(0, 2).toUpperCase() : "??"}
                                                     </div>
                                                     <div className="flex flex-col">
-                                                        <span className={`text-sm font-medium ${isSelected ? 'text-green-400' : 'text-gray-300'}`}>
+                                                        <span className={`text-sm font-medium ${isSelected ? 'text-green-400' : 'text-slate-300'}`}>
                                                             {user.displayName || "Usuario Desconocido"}
                                                             {isGuestUser && <span className="ml-2 text-[10px] bg-amber-500/20 text-amber-500 px-1.5 py-0.5 rounded border border-amber-500/30">INVITADO</span>}
                                                         </span>
@@ -597,11 +598,11 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                         </div>
                     </div>
 
-                    <div className="p-6 border-t border-gray-800 bg-gray-900/50 flex justify-end gap-3 shrink-0">
+                    <div className="p-6 border-t border-slate-800 bg-slate-900/50 flex justify-end gap-3 shrink-0">
                         <button
                             type="button"
                             onClick={onClose}
-                            className="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors"
+                            className="px-4 py-2 text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
                         >
                             Cancelar
                         </button>
