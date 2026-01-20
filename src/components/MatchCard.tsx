@@ -16,7 +16,20 @@ interface MatchCardProps {
 }
 
 export default function MatchCard({ match, onViewDetails, isAdmin }: MatchCardProps) {
-    const dateObj = match.date.toDate();
+    // LÓGICA DE SEGURIDAD PARA FECHAS
+    const dateObj = (() => {
+        // @ts-ignore - Handle mixed types (Timestamp | string)
+        if (!match.date) return new Date(); // Fallback por si es null
+        // Si es un Timestamp de Firestore (tiene .toDate)
+        // @ts-ignore
+        if (typeof match.date.toDate === 'function') {
+            // @ts-ignore
+            return match.date.toDate();
+        }
+        // Si es un String (ISO) o un número (Timestamp millis)
+        // @ts-ignore
+        return new Date(match.date);
+    })();
     const formattedDate = dateObj.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
     const formattedTime = dateObj.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 

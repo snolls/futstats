@@ -524,46 +524,45 @@ export default function EditGroupModal({ isOpen, onClose, groupData, onUpdate }:
 
                                 {(userData?.role === 'superadmin' || (user && groupData?.adminIds.includes(user.uid))) && (
                                     <>
-                                        {showDeleteConfirm ? (
-                                            <div className="mt-6 p-4 bg-red-950/30 border border-red-500/50 rounded-lg animate-in fade-in slide-in-from-bottom-2">
-                                                <div className="flex flex-col items-center text-center gap-3">
-                                                    <span className="text-3xl">⚠️</span>
-                                                    <h4 className="text-red-400 font-bold text-lg">¿Estás absolutamente seguro?</h4>
-                                                    <p className="text-red-200/70 text-sm mb-2">
-                                                        Esta acción borrará el grupo <strong>{groupData?.name}</strong>, todos sus partidos y estadísticas. No se puede deshacer.
-                                                    </p>
-                                                    <div className="flex w-full gap-3">
+                                        {/* ZONA DE PELIGRO */}
+                                        <div className="mt-8 pt-6 border-t border-red-900/30">
+                                            {!showDeleteConfirm ? (
+                                                // ESTADO 1: Botón Normal
+                                                <button
+                                                    type="button" // ¡IMPORTANTE! Evita que envíe el formulario
+                                                    onClick={(e) => {
+                                                        e.preventDefault(); // Detiene cualquier propagación
+                                                        e.stopPropagation();
+                                                        setShowDeleteConfirm(true); // Solo cambia el estado visual
+                                                    }}
+                                                    className="w-full py-3 bg-red-950/20 text-red-500 border border-red-900/50 rounded hover:bg-red-900/40 transition-colors flex justify-center items-center gap-2"
+                                                >
+                                                    🗑️ Eliminar Grupo
+                                                </button>
+                                            ) : (
+                                                // ESTADO 2: Confirmación
+                                                <div className="bg-red-950/40 p-4 rounded border border-red-500/50 animate-in fade-in slide-in-from-bottom-2">
+                                                    <p className="text-white font-bold text-center mb-1">¿Estás seguro?</p>
+                                                    <p className="text-red-300 text-xs text-center mb-3">Se borrará todo el historial del grupo.</p>
+                                                    <div className="flex gap-2">
                                                         <button
+                                                            type="button"
                                                             onClick={() => setShowDeleteConfirm(false)}
-                                                            className="flex-1 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded transition-colors"
+                                                            className="flex-1 py-2 bg-slate-700 text-white rounded hover:bg-slate-600"
                                                         >
                                                             Cancelar
                                                         </button>
                                                         <button
-                                                            onClick={handleDeleteGroup}
-                                                            className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded shadow-lg shadow-red-900/20 transition-all hover:scale-[1.02]"
+                                                            type="button"
+                                                            onClick={handleDeleteGroup} // AQUÍ ES DONDE SE BORRA
+                                                            className="flex-1 py-2 bg-red-600 text-white font-bold rounded hover:bg-red-700"
                                                         >
-                                                            ¡SÍ, ELIMINAR!
+                                                            ¡SÍ, BORRAR!
                                                         </button>
                                                     </div>
                                                 </div>
-                                            </div>
-                                        ) : (
-                                            <div className="mt-8 pt-6 border-t border-red-900/20">
-                                                <h3 className="text-red-500/80 font-semibold mb-3 text-sm uppercase tracking-wider">Zona de Peligro</h3>
-                                                <button
-                                                    type="button"
-                                                    onClick={(e) => {
-                                                        e.preventDefault();
-                                                        setShowDeleteConfirm(true);
-                                                    }}
-                                                    className="w-full py-3 border border-red-900/50 text-red-500 hover:bg-red-950/30 hover:border-red-500 rounded-lg transition-all flex items-center justify-center gap-2 group"
-                                                >
-                                                    <span>🗑️</span>
-                                                    <span className="group-hover:font-bold">Solicitar Eliminación de Grupo</span>
-                                                </button>
-                                            </div>
-                                        )}
+                                            )}
+                                        </div>
                                     </>
                                 )}
                             </div>
