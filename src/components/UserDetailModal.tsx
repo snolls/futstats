@@ -7,6 +7,7 @@ import { AppUserCustomData, PLAYER_POSITIONS } from '@/types/user';
 import { db } from '@/lib/firebase';
 import { doc, updateDoc, getDocs, collection, query, where, arrayUnion, arrayRemove, writeBatch } from 'firebase/firestore';
 import { useAuthContext } from '@/context/AuthContext';
+import { toast } from 'sonner';
 
 interface UserDetailModalProps {
     isOpen: boolean;
@@ -188,6 +189,26 @@ export default function UserDetailModal({ isOpen, onClose, user, onUpdate }: Use
             onUpdate();
         } catch (err) {
             console.error("Error toggling group:", err);
+        } finally {
+            setProcessingId(null);
+        }
+    };
+
+    const handleRequestAdmin = async () => {
+        if (!user) return;
+
+        try {
+            setProcessingId('request-admin'); // Bloquea el botón
+            const userRef = doc(db, 'users', user.id);
+
+            await updateDoc(userRef, {
+                adminRequestStatus: 'pending'
+            });
+
+            toast.success("Solicitud enviada al Superadmin");
+        } catch (error) {
+            console.error("Error solicitando admin:", error);
+            toast.error("Error al enviar la solicitud");
         } finally {
             setProcessingId(null);
         }
