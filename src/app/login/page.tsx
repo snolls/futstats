@@ -7,7 +7,9 @@ import {
     GoogleAuthProvider,
     createUserWithEmailAndPassword,
     signInWithEmailAndPassword,
-    updateProfile
+    updateProfile,
+    sendPasswordResetEmail,
+    fetchSignInMethodsForEmail
 } from 'firebase/auth';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
@@ -25,6 +27,14 @@ export default function LoginPage() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [fullName, setFullName] = useState('');
+    const [resetSent, setResetSent] = useState(false);
+
+    // Password Validation
+    const [passwordFocused, setPasswordFocused] = useState(false);
+    const hasMinLength = password.length >= 8;
+    const hasUpperCase = /[A-Z]/.test(password);
+    const hasNumber = /[0-9]/.test(password);
+    const isPasswordValid = hasMinLength && hasUpperCase && hasNumber;
 
     useEffect(() => {
         if (user && !loading) {
@@ -44,14 +54,35 @@ export default function LoginPage() {
         }
     };
 
+    const handleForgotPassword = async () => {
+        if (!email) {
+            setError('Ingresa tu correo para restablecer la contraseña.');
+            return;
+        }
+        try {
+            await sendPasswordResetEmail(auth, email);
+            setResetSent(true);
+            setError('');
+        } catch (e: any) {
+            console.error(e);
+            if (e.code === 'auth/user-not-found') {
+                setError('No existe cuenta con este correo.');
+            } else {
+                setError('Error al enviar correo: ' + e.message);
+            }
+        }
+    };
+
     const handleEmailAuth = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
+        setResetSent(false);
         setIsLoggingIn(true);
 
         try {
             if (isSignUp) {
                 if (!fullName.trim()) throw new Error("El nombre es obligatorio.");
+                if (!isPasswordValid) throw new Error("La contraseña no cumple los requisitos.");
 
                 // 1. Create Identity
                 const userCredential = await createUserWithEmailAndPassword(auth, email, password);
@@ -81,7 +112,7 @@ export default function LoginPage() {
 
             switch (e.code) {
                 case 'auth/invalid-credential':
-                    msg = "Correo o contraseña incorrectos. Si no tienes cuenta, regístrate.";
+                    msg = "Credenciales inválidas. Verifica tu correo y contraseña.";
                     break;
                 case 'auth/user-not-found':
                     msg = "Usuario no encontrado. Por favor, regístrate.";
@@ -90,14 +121,17 @@ export default function LoginPage() {
                     msg = "Contraseña incorrecta.";
                     break;
                 case 'auth/email-already-in-use':
-                    msg = "Este correo ya está registrado. Intenta iniciar sesión.";
+                    msg = "Este correo ya está registrado. Por favor, inicia sesión.";
+                    setIsSignUp(false); // Switch to login automatically
                     break;
                 case 'auth/weak-password':
-                    msg = "La contraseña debe tener al menos 6 caracteres.";
+                    msg = "La contraseña es muy debil. Intenta con una más segura.";
                     break;
                 case 'auth/too-many-requests':
                     msg = "Demasiados intentos fallidos. Inténtalo más tarde.";
                     break;
+                default:
+                    msg = e.message || msg;
             }
 
             setError(msg);
@@ -137,6 +171,11 @@ export default function LoginPage() {
                 {error && (
                     <div className="bg-red-500/10 border border-red-500/50 text-red-500 text-sm p-3 rounded-lg mb-4 text-center">
                         {error}
+                    </div>
+                )}
+                {resetSent && (
+                    <div className="bg-green-500/10 border border-green-500/50 text-green-500 text-sm p-3 rounded-lg mb-4 text-center">
+                        Hemos enviado un enlace de recuperación a tu correo.
                     </div>
                 )}
 
@@ -207,10 +246,27 @@ export default function LoginPage() {
                                 onChange={(e) => setPassword(e.target.value)}
                                 className="w-full bg-gray-950/50 border border-gray-800 rounded-lg py-2.5 pl-10 pr-4 text-white focus:border-green-500 focus:ring-1 focus:ring-green-500 outline-none transition-all placeholder:text-gray-600 text-sm"
                                 placeholder="••••••••"
-                                minLength={6}
                                 required
                             />
                         </div>
+                        {isSignUp && (
+                            <div className="mt-2 text-xs space-y-1 ml-1 text-gray-500">
+                                <p className={hasMinLength ? "text-green-500" : ""}>• Mínimo 8 caracteres</p>
+                                <p className={hasUpperCase ? "text-green-500" : ""}>• Al menos 1 mayúscula</p>
+                                <p className={hasNumber ? "text-green-500" : ""}>• Al menos 1 número</p>
+                            </div>
+                        )}
+                        {!isSignUp && (
+                            <div className="mt-1 text-right">
+                                <button
+                                    type="button"
+                                    onClick={handleForgotPassword}
+                                    className="text-xs text-green-500 hover:text-green-400 hover:underline"
+                                >
+                                    ¿Olvidaste tu contraseña?
+                                </button>
+                            </div>
+                        )}
                     </div>
 
                     <button

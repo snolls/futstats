@@ -19,6 +19,12 @@ export interface AppUserCustomData {
   strongFoot?: 'right' | 'left' | 'ambidextrous';
   onboardingCompleted?: boolean;
   adminRequestStatus?: 'pending' | 'rejected' | null;
+  /**
+   * Map of GroupId -> Debt Amount.
+   * Positive = Debt (User owes group).
+   * Negative = Credit (Group owes user).
+   */
+  groupDebts?: Record<string, number>;
 }
 
 export const PLAYER_POSITIONS = {

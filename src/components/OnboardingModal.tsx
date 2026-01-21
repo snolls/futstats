@@ -3,9 +3,10 @@
 import { useState, useEffect } from 'react';
 import { useAuthContext } from '@/context/AuthContext';
 import { doc, setDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { db, storage } from '@/lib/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { PLAYER_POSITIONS, PlayerPosition } from '@/types/user';
-import { Trophy, Check, UserIcon, Activity } from 'lucide-react';
+import { Trophy, Check, UserIcon, Activity, Camera } from 'lucide-react';
 
 export default function OnboardingModal({ forceOpen }: { forceOpen?: boolean }) {
     const { user, userData } = useAuthContext();
@@ -17,6 +18,8 @@ export default function OnboardingModal({ forceOpen }: { forceOpen?: boolean }) 
     const [nickname, setNickname] = useState('');
     const [position, setPosition] = useState<PlayerPosition>('CM');
     const [strongFoot, setStrongFoot] = useState<'right' | 'left' | 'ambidextrous'>('right');
+    const [photoFile, setPhotoFile] = useState<File | null>(null);
+    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
     useEffect(() => {
         if (forceOpen) {
@@ -42,8 +45,18 @@ export default function OnboardingModal({ forceOpen }: { forceOpen?: boolean }) 
         }
 
         setLoading(true);
+        setLoading(true);
         try {
-            // Use setDoc with merge to ensure document creation if it doesn't exist (e.g. Google Auth first time)
+            let photoURL = user.photoURL;
+
+            // Upload Photo if exists
+            if (photoFile) {
+                const storageRef = ref(storage, `profile_images/${user.uid}`);
+                await uploadBytes(storageRef, photoFile);
+                photoURL = await getDownloadURL(storageRef);
+            }
+
+            // Use setDoc with merge to ensure document creation if it doesn't exist
             await setDoc(doc(db, 'users', user.uid), {
                 nickname: nickname.trim(),
                 position,
@@ -51,12 +64,12 @@ export default function OnboardingModal({ forceOpen }: { forceOpen?: boolean }) 
                 onboardingCompleted: true,
                 email: user.email,
                 displayName: user.displayName || nickname.trim(),
-                role: userData?.role || 'user', // Preserve role if exists, else default to user
-                photoURL: user.photoURL,
+                role: userData?.role || 'user',
+                photoURL: photoURL,
                 updatedAt: new Date()
             }, { merge: true });
 
-            // The listener in AuthContext should update userData, causing the modal to close via useEffect
+            // Force reload or just close
             setIsVisible(false);
         } catch (error) {
             console.error("Error saving profile:", error);
@@ -87,6 +100,36 @@ export default function OnboardingModal({ forceOpen }: { forceOpen?: boolean }) 
 
                 {/* Scrollable Content */}
                 <div className="p-8 pt-2 overflow-y-auto space-y-6 custom-scrollbar">
+
+                    {/* Photo Upload */}
+                    <div className="flex flex-col items-center gap-3">
+                        <div className="relative w-24 h-24 rounded-full bg-gray-800 border-2 border-dashed border-gray-600 flex items-center justify-center overflow-hidden hover:border-green-500 transition-colors group cursor-pointer">
+                            <input
+                                type="file"
+                                accept="image/*"
+                                className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                                onChange={(e) => {
+                                    if (e.target.files?.[0]) {
+                                        setPhotoFile(e.target.files[0]);
+                                        setPreviewUrl(URL.createObjectURL(e.target.files[0]));
+                                    }
+                                }}
+                            />
+                            {previewUrl || user?.photoURL ? (
+                                <img
+                                    src={previewUrl || user?.photoURL || ''}
+                                    alt="Preview"
+                                    className="w-full h-full object-cover"
+                                />
+                            ) : (
+                                <div className="text-center p-2">
+                                    <Camera className="w-8 h-8 text-gray-500 mx-auto mb-1 group-hover:text-green-500 transition-colors" />
+                                    <span className="text-[10px] text-gray-400 group-hover:text-gray-300">Subir foto</span>
+                                </div>
+                            )}
+                        </div>
+                        <p className="text-xs text-center text-gray-500">Opcional. Se usará para tu ficha.</p>
+                    </div>
 
                     {/* Nickname */}
                     <div className="space-y-3">

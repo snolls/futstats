@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import OnboardingModal from "@/components/OnboardingModal";
 import "./globals.css";
 import { AuthProvider } from "@/context/AuthContext";
 import { Toaster } from "sonner";
@@ -38,6 +39,7 @@ export default function RootLayout({
       >
         <AuthProvider>
           <Toaster position="top-center" richColors theme="dark" />
+          <OnboardingModal />
           {children}
         </AuthProvider>
       </body>

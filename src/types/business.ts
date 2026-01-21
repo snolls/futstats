@@ -5,6 +5,7 @@ export interface Group {
     id?: string;
     name: string;
     adminIds: string[]; // List of IDs of users who are admins of this group
+    members: string[]; // List of IDs of users who are members
     createdAt: Timestamp;
     createdBy: string;
 }
