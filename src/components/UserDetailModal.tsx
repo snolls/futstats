@@ -1,11 +1,11 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { X, Calendar, Wallet, CheckCircle2, AlertTriangle, Plus, Minus, Loader2, History, RotateCcw, Pencil, Save, Users, Shield } from 'lucide-react';
 import { usePlayerDebts } from '@/hooks/usePlayerDebts';
 import { AppUserCustomData, PLAYER_POSITIONS } from '@/types/user';
 import { db } from '@/lib/firebase';
-import { doc, updateDoc, getDocs, collection, query, where, arrayUnion, arrayRemove, writeBatch } from 'firebase/firestore';
+import { doc, updateDoc, getDocs, collection, query, where, arrayUnion, arrayRemove, writeBatch, onSnapshot } from 'firebase/firestore';
 import { useAuthContext } from '@/context/AuthContext';
 import { toast } from 'sonner';
 import { UserService } from '@/services/UserService';
@@ -20,6 +20,37 @@ interface UserDetailModalProps {
 }
 
 export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpdate }: UserDetailModalProps) {
+    // --- LIVE DATA SYNC ---
+    // Usamos un estado local sincronizado para reflejar cambios (grupos, deudas) en tiempo real
+    const [liveUser, setLiveUser] = useState<AppUserCustomData & { id: string }>(user);
+
+    useEffect(() => {
+        if (!isOpen || !user.id) return;
+        // Suscribirse a cambios en el usuario
+        const unsub = onSnapshot(doc(db, "users", user.id), (docSnap) => {
+            if (docSnap.exists()) {
+                setLiveUser({ id: docSnap.id, ...docSnap.data() } as AppUserCustomData & { id: string });
+            }
+        });
+        return () => unsub();
+    }, [user.id, isOpen]);
+
+
+    // Auth Context for valid groups to manage
+    const { user: currentUser, userData: currentUserData } = useAuthContext();
+
+    // --- 1. CONTEXTO ECONÓMICO ---
+    const [selectedDebtContext, setSelectedDebtContext] = useState<string>("");
+
+    // Inicializar contexto: Si hay prop groupId, úsalo. Si no, usa el primer grupo asociado.
+    useEffect(() => {
+        if (groupId) {
+            setSelectedDebtContext(groupId);
+        } else if (liveUser.associatedGroups && liveUser.associatedGroups.length > 0) {
+            setSelectedDebtContext(liveUser.associatedGroups[0]);
+        }
+    }, [groupId, liveUser.associatedGroups]);
+
     const {
         pendingMatches,
         paidMatches,
@@ -30,10 +61,7 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
         toggleMatchPayment,
         updateManualDebt,
         processSmartPayment
-    } = usePlayerDebts(user?.id, groupId || undefined);
-
-    // Auth Context for valid groups to manage
-    const { user: currentUser, userData: currentUserData } = useAuthContext();
+    } = usePlayerDebts(liveUser?.id, selectedDebtContext || undefined);
 
     const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending');
     const [processingId, setProcessingId] = useState<string | null>(null);
@@ -73,18 +101,18 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
     } | null>(null);
 
     // Validar y tipar explícitamente los datos que vienen del user
-    const [editNickname, setEditNickname] = useState(user.nickname || "");
-    const [editPosition, setEditPosition] = useState(user.position || "CM");
-    const [editStrongFoot, setEditStrongFoot] = useState<'right' | 'left' | 'ambidextrous'>(user.strongFoot as any || "right");
+    const [editNickname, setEditNickname] = useState(liveUser.nickname || "");
+    const [editPosition, setEditPosition] = useState(liveUser.position || "CM");
+    const [editStrongFoot, setEditStrongFoot] = useState<'right' | 'left' | 'ambidextrous'>(liveUser.strongFoot as any || "right");
 
-    const canEditProfile = currentUserData?.role === 'superadmin' || currentUser?.uid === user.id;
+    const canEditProfile = currentUserData?.role === 'superadmin' || currentUser?.uid === liveUser.id;
 
     const startEditingName = () => {
         if (!canEditProfile) return;
-        setEditNameValue(user.displayName || "");
-        setEditNickname(user.nickname || "");
-        setEditPosition(user.position || "CM");
-        setEditStrongFoot(user.strongFoot as any || "right");
+        setEditNameValue(liveUser.displayName || "");
+        setEditNickname(liveUser.nickname || "");
+        setEditPosition(liveUser.position || "CM");
+        setEditStrongFoot(liveUser.strongFoot as any || "right");
         setIsEditingName(true);
     };
 
@@ -150,6 +178,8 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
             setProcessingId(null);
         }
     };
+
+
 
     // --- Group Management Logic --- //
     const fetchManageableGroups = async () => {
@@ -533,7 +563,7 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
                                 )}
                                 {/* Display Groups Badge */}
                                 <div className="flex flex-wrap gap-1">
-                                    {(user.associatedGroups || []).length > 0 && <span className="text-[10px] text-slate-500 bg-slate-800 px-1.5 rounded">{user.associatedGroups?.length} Grupos</span>}
+                                    {(liveUser.associatedGroups || []).length > 0 && <span className="text-[10px] text-slate-500 bg-slate-800 px-1.5 rounded">{liveUser.associatedGroups?.length} Grupos</span>}
                                 </div>
                             </div>
 
@@ -578,6 +608,34 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
 
                 <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
 
+                    {/* --- DESGLOSE DE DEUDAS (BETA) --- */}
+                    {(liveUser.debts || liveUser.groupDebts) && Object.keys(liveUser.debts || liveUser.groupDebts || {}).length > 0 && (
+                        <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
+                            {Object.entries(liveUser.debts || liveUser.groupDebts || {})
+                                .filter(([gId]) => manageableGroups.some(mg => mg.id === gId)) // Privacy Filter
+                                .map(([gId, amount]) => {
+                                    // Try to find name in manageableGroups
+                                    const gName = manageableGroups.find(g => g.id === gId)?.name || gId.slice(0, 8);
+                                    const isSelected = selectedDebtContext === gId;
+                                    return (
+                                        <button
+                                            key={gId}
+                                            onClick={() => setSelectedDebtContext(gId)}
+                                            className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-mono border transition-all flex flex-col items-start ${isSelected
+                                                ? 'bg-blue-900/30 border-blue-500 text-blue-200'
+                                                : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-500'
+                                                }`}
+                                        >
+                                            <span className="font-bold">{gName}</span>
+                                            <span className={amount > 0 ? 'text-red-400' : amount < 0 ? 'text-emerald-400' : 'text-slate-500'}>
+                                                {amount > 0 ? '-' : amount < 0 ? '+' : ''}{Math.abs(amount).toFixed(2)}€
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                        </div>
+                    )}
+
                     {/* Ficha de Estado Dinámica */}
                     <div className={`p-4 rounded-xl border flex items-center justify-between mb-6 ${statusConfig.bg} ${statusConfig.border}`}>
                         <div className="flex items-center gap-3">
@@ -598,7 +656,11 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
                                 {isDebt ? '-' : isCredit ? '+' : ''}{Math.abs(totalDebt).toFixed(2)}€
                             </div>
                             <div className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">
-                                Total: {matchesDebt.toFixed(2)}€ Partidos + {manualDebt.toFixed(2)}€ Manual
+                                {selectedDebtContext ? (
+                                    <>En Grupo: {manageableGroups.find(g => g.id === selectedDebtContext)?.name || 'Seleccionado'}</>
+                                ) : (
+                                    <>Selecciona un grupo</>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -709,7 +771,6 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
 
                         <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-4">
 
-                            {/* ALERTA DE SEGURIDAD PARA DEUDA PENDIENTE */}
                             {matchesDebt > 0 && (
                                 <div className="flex items-start gap-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-200 text-xs">
                                     <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -719,6 +780,24 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
                                     </p>
                                 </div>
                             )}
+
+                            {/* SELECTOR DE CONTEXTO */}
+                            <div>
+                                <label className="text-[10px] text-slate-400 mb-1 block">Gestionando economía de:</label>
+                                <select
+                                    value={selectedDebtContext}
+                                    onChange={(e) => setSelectedDebtContext(e.target.value)}
+                                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs focus:border-blue-500 outline-none mb-3"
+                                >
+                                    <option value="" disabled>-- Selecciona Grupo --</option>
+                                    {/* Mostrar grupos asociados del usuario */}
+                                    {user.associatedGroups?.filter(ag => manageableGroups.some(mg => mg.id === ag)).map(ag => {
+                                        const gName = manageableGroups.find(g => g.id === ag)?.name || ag;
+                                        return <option key={ag} value={ag}>{gName}</option>;
+                                    })}
+                                    {/* Fallback for groups in debts but not associated? */}
+                                </select>
+                            </div>
 
                             <div className="flex gap-2">
                                 <input
@@ -731,16 +810,22 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
                             </div>
                             <div className="grid grid-cols-2 gap-3">
                                 <button
-                                    onClick={() => initiateManualUpdate('add')}
-                                    disabled={!manualDebtInput || processingId === 'manual'}
+                                    onClick={() => {
+                                        if (!selectedDebtContext) return toast.error("Selecciona un grupo primero");
+                                        initiateManualUpdate('add');
+                                    }}
+                                    disabled={!manualDebtInput || processingId === 'manual' || !selectedDebtContext}
                                     className="flex items-center justify-center gap-2 py-2 bg-red-900/20 hover:bg-red-900/40 text-red-500 border border-red-900/30 rounded-lg text-xs font-bold transition-all disabled:opacity-50"
                                 >
                                     {processingId === 'manual' ? <Loader2 className="w-3 h-3 animate-spin " /> : <Plus className="w-3 h-3" />}
                                     Añadir Deuda
                                 </button>
                                 <button
-                                    onClick={() => initiateManualUpdate('subtract')}
-                                    disabled={!manualDebtInput || processingId === 'manual' || processingId === 'smart-payment'}
+                                    onClick={() => {
+                                        if (!selectedDebtContext) return toast.error("Selecciona un grupo primero");
+                                        initiateManualUpdate('subtract');
+                                    }}
+                                    disabled={!manualDebtInput || processingId === 'manual' || processingId === 'smart-payment' || !selectedDebtContext}
                                     className="flex items-center justify-center gap-2 py-2 bg-emerald-900/20 hover:bg-emerald-900/40 text-emerald-500 border border-emerald-900/30 rounded-lg text-xs font-bold transition-all disabled:opacity-50"
                                 >
                                     {processingId === 'manual' || processingId === 'smart-payment' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Minus className="w-3 h-3" />}
@@ -759,7 +844,7 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
                             </h4>
                             <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 {manageableGroups.map(group => {
-                                    const isAssociated = user.associatedGroups?.includes(group.id);
+                                    const isAssociated = liveUser.associatedGroups?.includes(group.id);
                                     const isLoading = processingId === `group-${group.id}`;
                                     return (
                                         <label key={group.id} className={`flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all ${isAssociated ? 'bg-blue-900/20 border-blue-500/50' : 'bg-slate-900 border-slate-700 hover:border-slate-600'}`}>

@@ -571,6 +571,8 @@ export default function Home() {
           />
 
 
+
+
           {/* --- ONBOARDING OBLIGATORIO --- */}
           {showOnboarding && <OnboardingModal forceOpen={true} />}
         </div>

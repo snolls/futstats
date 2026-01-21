@@ -11,6 +11,7 @@ import ConfirmationModal from "./ConfirmationModal";
 import UserCard, { UserActions } from "./UserCard";
 import CreateGuestModal from "./CreateGuestModal"; // Imported
 import { toast } from "sonner";
+import { calculateVisibleBalance } from "@/utils/finance";
 
 interface UserDirectoryProps {
     currentUser: { uid: string; role?: string; displayName?: string | null };
@@ -225,9 +226,20 @@ export default function UserDirectory({ currentUser }: UserDirectoryProps) {
                         });
                     }
 
+                    // Calculate recorded debt based on visibility rules
+                    const managedGroupIds = currentGroups.map(g => g.id); // Admins only load their groups, so using all loaded is safe.
+                    // (Note: For Superadmin, loadedGroups is ALL groups, which is also correct for 'superadmin' rule.)
+
+                    const baseBalance = calculateVisibleBalance(u, currentUser.role, managedGroupIds);
+
+                    // Total = Base + Pending 
+                    // Note: Base 'debt' (positive) means they owe money. Pending matches (positive cost) means they owe more.
+                    // So we sum them.
+                    const totalVisibleDebt = baseBalance + pendingVal;
+
                     return {
                         ...u,
-                        totalDebt: manual + pendingVal,
+                        totalDebt: totalVisibleDebt,
                         pendingMatchCount: pendingCount,
                     };
                 });
@@ -644,6 +656,7 @@ function UserRow({ user, currentUser, onDelete, onRoleUpdate, onOpenDetail }: an
             <td className="p-4">
                 {debt !== 0 ? (
                     <div className="flex flex-col">
+                        {/* Balance Calculation: Balance = -Debt. Positive Balance = Credit (Green). Negative Balance = Debt (Red). */}
                         <span className={clsx("text-sm font-bold flex items-center gap-1", isDebtor ? "text-red-500" : "text-emerald-500")}>
                             {isDebtor ? "-" : "+"}{Math.abs(debt).toFixed(2)}€
                         </span>
