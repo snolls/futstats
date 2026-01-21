@@ -21,8 +21,8 @@ interface UsePlayerDebtsReturn {
     manualDebt: number;
     loading: boolean;
     toggleMatchPayment: (statId: string, currentStatus: 'PENDING' | 'PAID') => Promise<void>;
-    updateManualDebt: (amount: number) => Promise<void>;
-    processSmartPayment: (amount: number) => Promise<void>;
+    updateManualDebt: (amount: number, targetGroupId?: string) => Promise<void>;
+    processSmartPayment: (amount: number, targetGroupId?: string) => Promise<void>;
 }
 
 export function usePlayerDebts(userId: string, groupId?: string): UsePlayerDebtsReturn {
@@ -139,8 +139,9 @@ export function usePlayerDebts(userId: string, groupId?: string): UsePlayerDebts
         }
     };
 
-    const updateManualDebt = async (amount: number) => {
-        if (!groupId) {
+    const updateManualDebt = async (amount: number, targetGroupId?: string) => {
+        const activeGroupId = targetGroupId || groupId;
+        if (!activeGroupId) {
             console.warn("Cannot update manual debt without a specific Group ID context.");
             return;
         }
@@ -149,7 +150,7 @@ export function usePlayerDebts(userId: string, groupId?: string): UsePlayerDebts
             // and using the new 'debts' field per instructions.
             await setDoc(doc(db, 'users', userId), {
                 debts: {
-                    [groupId]: increment(amount)
+                    [activeGroupId]: increment(amount)
                 }
             }, { merge: true });
         } catch (error) {
@@ -158,12 +159,19 @@ export function usePlayerDebts(userId: string, groupId?: string): UsePlayerDebts
         }
     };
 
-    const processSmartPayment = async (amount: number) => {
+    const processSmartPayment = async (amount: number, targetGroupId?: string) => {
         if (!userId || amount <= 0) return;
         let remainingAmount = amount;
+        const activeGroupId = targetGroupId || groupId;
 
         // 1. Pay Oldest Matches
-        const sortedPending = [...pendingMatches].sort((a, b) => a.date.getTime() - b.date.getTime());
+        // Filter pending matches by group if we are targeting a specific group
+        let relevantMatches = [...pendingMatches];
+        if (activeGroupId) {
+            relevantMatches = relevantMatches.filter(m => m.groupId === activeGroupId);
+        }
+
+        const sortedPending = relevantMatches.sort((a, b) => a.date.getTime() - b.date.getTime());
 
         for (const match of sortedPending) {
             if (remainingAmount >= match.price) {
@@ -179,11 +187,11 @@ export function usePlayerDebts(userId: string, groupId?: string): UsePlayerDebts
         }
 
         // 2. Reduce Manual Debt (Balance)
-        if (remainingAmount > 0 && groupId) {
+        if (remainingAmount > 0 && activeGroupId) {
             // Pay = Subtract from debt
             // If manual debt is 10, and we pay 3, we subtract 3.
             // updateManualDebt(x) increments. So passed -remaining.
-            await updateManualDebt(-remainingAmount);
+            await updateManualDebt(-remainingAmount, activeGroupId);
         }
     };
 

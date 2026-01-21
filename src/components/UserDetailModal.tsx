@@ -94,17 +94,64 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
         fetchManageableGroups();
     }
 
+    // --- GLOBAL DATA HOOK ---
+    // Initialize with undefined to fetch ALL matches and debts.
+    // We will filter client-side for specific contexts.
     const {
-        pendingMatches,
-        paidMatches,
-        totalDebt,
-        matchesDebt,
-        manualDebt,
+        pendingMatches: allPendingMatches,
+        paidMatches: allPaidMatches,
+        totalDebt: globalTotalDebt,
+        matchesDebt: globalMatchesDebt,
+        manualDebt: globalManualDebt,
         loading,
         toggleMatchPayment,
         updateManualDebt,
         processSmartPayment
-    } = usePlayerDebts(liveUser?.id, selectedDebtContext || undefined);
+    } = usePlayerDebts(liveUser?.id, undefined);
+
+    // --- FILTERED LISTS FOR EXTENDED UI ---
+    // These lists are used for the "Partidos" tab list
+    const filteredPendingMatches = useMemo(() => {
+        if (!selectedDebtContext) return allPendingMatches;
+        return allPendingMatches.filter(m => m.groupId === selectedDebtContext);
+    }, [allPendingMatches, selectedDebtContext]);
+
+    const filteredPaidMatches = useMemo(() => {
+        if (!selectedDebtContext) return allPaidMatches;
+        return allPaidMatches.filter(m => m.groupId === selectedDebtContext);
+    }, [allPaidMatches, selectedDebtContext]);
+
+
+    // --- UNIFIED DEBT CALCULATION ---
+    // Calculates the unified balance for ANY group (or global if null)
+    // Returns: { total, manual, matches }
+    // Total is positive if debt.
+    const calculateGroupBalance = (gid?: string | null) => {
+        if (!gid) {
+            // Global Case
+            return {
+                total: globalTotalDebt,
+                manual: globalManualDebt,
+                matches: globalMatchesDebt
+            };
+        }
+
+        // Specific Group Case
+        const manual = liveUser?.debts?.[gid] || 0;
+        const matches = allPendingMatches
+            .filter(m => m.groupId === gid)
+            .reduce((acc, m) => acc + (m.price || 0), 0);
+
+        return {
+            total: manual + matches,
+            manual,
+            matches
+        };
+    };
+
+    // Calculate Final Displayed Total for the Main Badge
+    const groupFinancialStatus = calculateGroupBalance(selectedDebtContext);
+    const displayedTotal = groupFinancialStatus.total;
 
     // --- SMART AUTO-SELECTION LOGIC ---
     useEffect(() => {
@@ -114,8 +161,8 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
         let targetGroup = '';
 
         // 1. Priority: Pending Matches (Urgent)
-        if (pendingMatches.length > 0) {
-            const firstPending = pendingMatches.find(m => m.paymentStatus === 'PENDING');
+        if (allPendingMatches.length > 0) {
+            const firstPending = allPendingMatches.find(m => m.paymentStatus === 'PENDING');
             if (firstPending && firstPending.groupId) {
                 targetGroup = firstPending.groupId;
             }
@@ -139,7 +186,7 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
             setSelectedDebtContext(targetGroup);
         }
 
-    }, [pendingMatches, liveUser.debts, liveUser.associatedGroups, selectedDebtContext]);
+    }, [allPendingMatches, liveUser.debts, liveUser.associatedGroups, selectedDebtContext]);
 
 
     // --- SMART AUTO-SELECTION LOGIC (Moved here) ---
@@ -217,7 +264,7 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
         const val = parseFloat(manualDebtInput);
         if (isNaN(val) || val <= 0) return;
 
-        if (type === 'subtract' && pendingMatches.length > 0) {
+        if (type === 'subtract' && filteredPendingMatches.length > 0) {
             // INTERCEPTAR: Si intenta cancelar deuda (pagar) y tiene partidos pendientes
             setPendingPaymentAmount(val);
             setShowPaymentConfirm(true);
@@ -228,10 +275,15 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
     };
 
     const executeManualUpdate = async (type: 'add' | 'subtract', amount: number) => {
+        if (!selectedDebtContext) {
+            toast.error("Selecciona un grupo para modificar la deuda manual.");
+            return;
+        }
         setProcessingId('manual');
         try {
             const adjustment = type === 'add' ? amount : -amount;
-            await updateManualDebt(adjustment);
+            // Pass selectedDebtContext to override hook's global context
+            await updateManualDebt(adjustment, selectedDebtContext);
             onUpdate();
             setManualDebtInput("");
             setShowPaymentConfirm(false);
@@ -245,7 +297,8 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
     const executeSmartPayment = async () => {
         setProcessingId('smart-payment');
         try {
-            await processSmartPayment(pendingPaymentAmount); // La función del hook hace la magia
+            // Pass selectedDebtContext to override hook
+            await processSmartPayment(pendingPaymentAmount, selectedDebtContext || undefined);
             onUpdate();
             setManualDebtInput("");
             setShowPaymentConfirm(false);
@@ -269,27 +322,7 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
         return manageableGroups.filter(mg => targetGroups.includes(mg.id));
     }, [liveUser?.associatedGroups, manageableGroups]);
 
-    // --- UNIFIED DEBT CALCULATION ---
-    const groupFinancialStatus = useMemo(() => {
-        if (!selectedDebtContext) return null;
 
-        // 1. Deuda Manual (Base de datos usuario)
-        const manual = liveUser?.debts?.[selectedDebtContext] || 0;
-
-        // 2. Deuda de Partidos (Calculada al vuelo con pendingMatches ya filtrados por el hook o filtrados aca)
-        // El hook 'usePlayerDebts' devuelve pendingMatches FILTRADOS si le pasamos selectedDebtContext.
-        // Así que simplemente sumamos lo que tenemos.
-        const matchesDebtVal = pendingMatches.reduce((acc, m) => acc + (m.price || 0), 0);
-
-        // Total = Manual + Matches (Positive = Debt)
-        const total = manual + matchesDebtVal;
-
-        return { total, manual, matches: matchesDebtVal };
-    }, [selectedDebtContext, liveUser.debts, pendingMatches]);
-
-    // Calculate Final Displayed Total
-    // If context selected, use our specific calc. If global, use totalDebt from hook.
-    const displayedTotal = selectedDebtContext && groupFinancialStatus ? groupFinancialStatus.total : totalDebt;
 
     // --- Group Management Logic --- //
 
@@ -496,7 +529,7 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
                             </div>
 
                             <p className="text-slate-300 text-sm leading-relaxed">
-                                El usuario tiene <strong className="text-white">{pendingMatches.length} partidos pendientes</strong> por un valor de <strong className="text-red-400">{matchesDebt.toFixed(2)}€</strong>.
+                                El usuario tiene <strong className="text-white">{filteredPendingMatches.length} partidos pendientes</strong> por un valor de <strong className="text-red-400">{filteredPendingMatches.reduce((acc, m) => acc + m.price, 0).toFixed(2)}€</strong>.
                             </p>
 
                             <div className="bg-slate-950 p-4 rounded-lg border border-slate-800">
@@ -694,35 +727,45 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
                     </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar">
+                <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar pr-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gray-700/50 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-gray-600">
 
                     {/* --- DESGLOSE DE DEUDAS (BETA) --- */}
-                    {(liveUser.debts || liveUser.groupDebts) && Object.keys(liveUser.debts || liveUser.groupDebts || {}).length > 0 && (
-                        <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
-                            {Object.entries(liveUser.debts || liveUser.groupDebts || {})
-                                .filter(([gId]) => manageableGroups.some(mg => mg.id === gId)) // Privacy Filter
-                                .map(([gId, amount]) => {
-                                    // Try to find name in manageableGroups
-                                    const gName = manageableGroups.find(g => g.id === gId)?.name || gId.slice(0, 8);
-                                    const isSelected = selectedDebtContext === gId;
-                                    return (
-                                        <button
-                                            key={gId}
-                                            onClick={() => setSelectedDebtContext(gId)}
-                                            className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-mono border transition-all flex flex-col items-start ${isSelected
-                                                ? 'bg-blue-900/30 border-blue-500 text-blue-200'
-                                                : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-500'
-                                                }`}
-                                        >
-                                            <span className="font-bold">{gName}</span>
-                                            <span className={amount > 0 ? 'text-red-400' : amount < 0 ? 'text-emerald-400' : 'text-slate-500'}>
-                                                {amount > 0 ? '-' : amount < 0 ? '+' : ''}{Math.abs(amount).toFixed(2)}€
-                                            </span>
-                                        </button>
-                                    );
-                                })}
+                    {/* BADGES DE ESTADO FINANCIERO POR GRUPO */}
+                    {(liveUser.associatedGroups || []).length > 0 && (
+                        <div className="flex flex-wrap gap-2 mb-6">
+                            {(liveUser.associatedGroups || []).map(groupId => {
+                                // Find group name in manageableGroups (loaded for admin)
+                                const group = manageableGroups.find(g => g.id === groupId);
+                                if (!group) return null; // Privacy/Loading check
+
+                                // Unified Calc
+                                const { total } = calculateGroupBalance(groupId);
+
+                                const isDebt = total > 0.01;
+                                const isCredit = total < -0.01;
+
+                                let styleClass = "border-slate-800 text-slate-500 bg-slate-900"; // Neutro
+                                if (isDebt) styleClass = "border-red-500/50 text-red-400 bg-red-500/10 shadow-[0_0_10px_rgba(239,68,68,0.1)]";
+                                if (isCredit) styleClass = "border-emerald-500/50 text-emerald-400 bg-emerald-500/10 shadow-[0_0_10px_rgba(16,185,129,0.1)]";
+
+                                const isSelected = selectedDebtContext === groupId;
+
+                                return (
+                                    <button
+                                        key={groupId}
+                                        onClick={() => setSelectedDebtContext(isSelected ? "" : groupId)}
+                                        className={`px-3 py-2 rounded-lg border ${styleClass} flex flex-col items-center justify-center min-w-[90px] transition-all duration-200 ${isSelected ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-slate-900' : 'hover:border-slate-600'}`}
+                                    >
+                                        <span className="text-[10px] uppercase font-bold tracking-wider opacity-80 truncate max-w-[120px]">{group.name}</span>
+                                        <span className="text-sm font-mono font-bold tracking-tight">
+                                            {isDebt ? '-' : isCredit ? '+' : ''}{Math.abs(total).toFixed(2)}€
+                                        </span>
+                                    </button>
+                                );
+                            })}
                         </div>
                     )}
+
 
                     {/* Ficha de Estado Dinámica */}
                     <div className={`p-4 rounded-xl border flex items-center justify-between mb-6 ${statusConfig.bg} ${statusConfig.border}`}>
@@ -768,7 +811,7 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
                                     onClick={() => setActiveTab('pending')}
                                     className={`text-xs font-bold px-3 py-1.5 rounded-lg transition-colors ${activeTab === 'pending' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'}`}
                                 >
-                                    Pendientes ({pendingMatches.length})
+                                    Pendientes ({filteredPendingMatches.length})
                                 </button>
                                 <button
                                     onClick={() => setActiveTab('history')}
@@ -783,13 +826,13 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
                             <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-blue-500" /></div>
                         ) : activeTab === 'pending' ? (
                             // LISTA DE PENDIENTES
-                            pendingMatches.length === 0 ? (
+                            filteredPendingMatches.length === 0 ? (
                                 <div className="text-center py-6 border border-dashed border-slate-800 rounded-xl bg-slate-900/50 text-slate-500 text-sm">
                                     No hay partidos sin pagar.
                                 </div>
                             ) : (
                                 <div className="space-y-2 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
-                                    {pendingMatches.map(match => (
+                                    {filteredPendingMatches.map(match => (
                                         <div key={match.statId} className="flex items-center justify-between p-3 bg-red-950/20 border border-red-900/30 rounded-lg hover:border-red-700/50 transition-colors">
                                             <div className="flex flex-col">
                                                 <span className="text-sm font-medium text-white">{match.matchDateString}</span>
@@ -811,13 +854,13 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
                             )
                         ) : (
                             // LISTA DE HISTORIAL (PAGADOS)
-                            paidMatches.length === 0 ? (
+                            filteredPaidMatches.length === 0 ? (
                                 <div className="text-center py-6 border border-dashed border-slate-800 rounded-xl bg-slate-900/50 text-slate-500 text-sm">
                                     No hay historial reciente.
                                 </div>
                             ) : (
                                 <div className="space-y-2 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
-                                    {paidMatches.map(match => (
+                                    {filteredPaidMatches.map(match => (
                                         <div key={match.statId} className="flex items-center justify-between p-3 bg-slate-950 border border-slate-800 rounded-lg opacity-75 hover:opacity-100 transition-opacity">
                                             <div className="flex flex-col">
                                                 <span className="text-sm font-medium text-slate-400 decoration-slate-600">{match.matchDateString}</span>
@@ -849,24 +892,24 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
                                 <Wallet className="w-4 h-4 text-amber-400" />
                                 Ajustes Manuales / Multas
                             </h4>
-                            {manualDebt < 0 ? (
+                            {groupFinancialStatus.manual < 0 ? (
                                 <span className="text-xs font-bold px-2 py-1 rounded border bg-emerald-500/10 border-emerald-500/20 text-emerald-400">
-                                    Saldo disponible: {Math.abs(manualDebt).toFixed(2)}€
+                                    Saldo disponible: {Math.abs(groupFinancialStatus.manual).toFixed(2)}€
                                 </span>
                             ) : (
-                                <span className={`text-xs font-bold px-2 py-1 rounded border ${manualDebt > 0 ? 'bg-slate-800 border-slate-700 text-white' : 'border-transparent text-slate-600'}`}>
-                                    Saldo: {manualDebt > 0 ? '-' : ''}{Math.abs(manualDebt).toFixed(2)}€
+                                <span className={`text-xs font-bold px-2 py-1 rounded border ${groupFinancialStatus.manual > 0 ? 'bg-slate-800 border-slate-700 text-white' : 'border-transparent text-slate-600'}`}>
+                                    Saldo: {groupFinancialStatus.manual > 0 ? '-' : ''}{Math.abs(groupFinancialStatus.manual).toFixed(2)}€
                                 </span>
                             )}
                         </div>
 
                         <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-4">
 
-                            {matchesDebt > 0 && (
+                            {groupFinancialStatus.matches > 0 && (
                                 <div className="flex items-start gap-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-200 text-xs">
                                     <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                                     <p>
-                                        El usuario tiene <strong>{matchesDebt.toFixed(2)}€</strong> en partidos pendientes.
+                                        El usuario tiene <strong>{groupFinancialStatus.matches.toFixed(2)}€</strong> en partidos pendientes.
                                         Usa el botón "Restar / Pagar" para decidir cómo aplicar el dinero.
                                     </p>
                                 </div>
