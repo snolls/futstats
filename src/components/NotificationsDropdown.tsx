@@ -136,78 +136,88 @@ export default function NotificationsDropdown() {
         }
     };
 
-    if (requests.length === 0) return null; // Or show empty bell? Usually hidden if empty or just bell without dot.
-    // User requested "campanita con punto rojo". If 0, maybe just bell or nothing.
-    // Let's show Bell always if Role is Admin/Superadmin? Or just if requests exist?
-    // "Un indicador visual (campanita...) cuando alguien pide..." -> Implies reactive.
-    // But helpful to have the center available.
+    // Always show the component, even if empty.
+    // If empty, just don't show the red badge.
 
     return (
         <div className="relative" ref={dropdownRef}>
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="relative p-2 text-gray-400 hover:text-white transition-colors rounded-full hover:bg-gray-800"
+                className={`relative p-2 rounded-full transition-all duration-200 ${isOpen ? 'bg-gray-800 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-800/50'}`}
+                title="Notificaciones"
             >
                 <Bell className="w-5 h-5" />
                 {unreadCount > 0 && (
-                    <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-gray-900" />
+                    <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-slate-900 animate-pulse" />
                 )}
             </button>
 
             {isOpen && (
-                <div className="absolute right-0 mt-2 w-80 bg-gray-900 border border-gray-800 rounded-xl shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-2">
-                    <div className="px-4 py-2 border-b border-gray-800 flex justify-between items-center">
-                        <h3 className="font-bold text-white text-sm">Notificaciones</h3>
-                        <span className="text-xs text-gray-500">{unreadCount} pendientes</span>
+                <div className="absolute right-0 mt-3 w-80 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl overflow-hidden z-50 animate-in fade-in slide-in-from-top-2 ring-1 ring-white/5">
+                    <div className="px-4 py-3 border-b border-slate-800 bg-slate-900/50 backdrop-blur flex justify-between items-center sticky top-0 z-10">
+                        <h3 className="font-bold text-white text-sm flex items-center gap-2">
+                            Notificaciones
+                            {unreadCount > 0 && <span className="text-[10px] bg-red-500 text-white px-1.5 py-0.5 rounded-full">{unreadCount}</span>}
+                        </h3>
+                        <button onClick={() => setIsOpen(false)} className="text-slate-500 hover:text-white"><X className="w-4 h-4" /></button>
                     </div>
 
-                    <div className="max-h-80 overflow-y-auto">
+                    <div className="max-h-[20rem] overflow-y-auto custom-scrollbar">
                         {requests.length === 0 ? (
-                            <div className="p-4 text-center text-gray-500 text-xs">
-                                No hay notificaciones nuevas.
+                            <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
+                                <Bell className="w-8 h-8 text-slate-800 mb-2" />
+                                <p className="text-slate-500 text-sm font-medium">No tienes notificaciones pendientes.</p>
                             </div>
                         ) : (
-                            requests.map(req => (
-                                <div key={req.id} className="p-3 border-b border-gray-800 last:border-0 hover:bg-gray-800/50 transition-colors">
-                                    <div className="flex items-start gap-3">
-                                        <div className="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center text-xs font-bold text-gray-400 shrink-0">
-                                            {req.userName.slice(0, 2).toUpperCase()}
+                            <div className="divide-y divide-slate-800/50">
+                                {requests.map(req => (
+                                    <div key={req.id} className="p-4 hover:bg-slate-800/30 transition-colors">
+                                        <div className="flex items-start gap-3">
+                                            {req.userPhotoURL ? (
+                                                <img src={req.userPhotoURL} alt={req.userName} className="w-9 h-9 rounded-full object-cover border border-slate-700" />
+                                            ) : (
+                                                <div className="w-9 h-9 rounded-full bg-slate-800 flex items-center justify-center text-xs font-bold text-slate-400 shrink-0 border border-slate-700">
+                                                    {req.userName.slice(0, 2).toUpperCase()}
+                                                </div>
+                                            )}
+
+                                            <div className="flex-1 min-w-0 pt-0.5">
+                                                <p className="text-sm text-slate-300 leading-snug">
+                                                    <span className="font-bold text-white">{req.userName}</span>
+                                                    {req.type === 'join_group' && (
+                                                        <> solicita unirse a <span className="text-blue-400 font-medium">{req.targetGroupName}</span></>
+                                                    )}
+                                                    {req.type === 'request_admin' && (
+                                                        <> solicita acceso como <span className="text-purple-400 font-medium">Organizador</span></>
+                                                    )}
+                                                </p>
+                                                <p className="text-[11px] text-slate-500 mt-1 flex items-center gap-2">
+                                                    {req.userEmail}
+                                                </p>
+                                            </div>
                                         </div>
-                                        <div className="flex-1 min-w-0">
-                                            <p className="text-sm text-gray-300">
-                                                <span className="font-bold text-white">{req.userName}</span>
-                                                {req.type === 'join_group' && (
-                                                    <> quiere unirse a <span className="text-blue-400">{req.targetGroupName}</span></>
-                                                )}
-                                                {req.type === 'request_admin' && (
-                                                    <> solicita ser <span className="text-purple-400">Organizador</span></>
-                                                )}
-                                            </p>
-                                            <p className="text-[10px] text-gray-500 mt-1">
-                                                {req.userEmail}
-                                            </p>
+
+                                        <div className="flex gap-2 mt-3 pl-12">
+                                            <button
+                                                onClick={() => handleAccept(req)}
+                                                disabled={loading}
+                                                className="flex-1 py-1.5 bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-500 border border-emerald-600/20 hover:border-emerald-600/40 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
+                                            >
+                                                {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                                                Aceptar
+                                            </button>
+                                            <button
+                                                onClick={() => handleReject(req)}
+                                                disabled={loading}
+                                                className="flex-1 py-1.5 bg-red-600/10 hover:bg-red-600/20 text-red-500 border border-red-600/20 hover:border-red-600/40 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
+                                            >
+                                                <X className="w-3 h-3" />
+                                                Rechazar
+                                            </button>
                                         </div>
                                     </div>
-                                    <div className="flex gap-2 mt-3 pl-11">
-                                        <button
-                                            onClick={() => handleAccept(req)}
-                                            disabled={loading}
-                                            className="flex-1 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded flex items-center justify-center gap-1 disabled:opacity-50"
-                                        >
-                                            {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
-                                            Aceptar
-                                        </button>
-                                        <button
-                                            onClick={() => handleReject(req)}
-                                            disabled={loading}
-                                            className="flex-1 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-bold rounded flex items-center justify-center gap-1"
-                                        >
-                                            <X className="w-3 h-3" />
-                                            Rechazar
-                                        </button>
-                                    </div>
-                                </div>
-                            ))
+                                ))}
+                            </div>
                         )}
                     </div>
                 </div>

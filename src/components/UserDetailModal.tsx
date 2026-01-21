@@ -8,15 +8,18 @@ import { db } from '@/lib/firebase';
 import { doc, updateDoc, getDocs, collection, query, where, arrayUnion, arrayRemove, writeBatch } from 'firebase/firestore';
 import { useAuthContext } from '@/context/AuthContext';
 import { toast } from 'sonner';
+import { UserService } from '@/services/UserService';
+import { UserMinus, Ban } from 'lucide-react';
 
 interface UserDetailModalProps {
     isOpen: boolean;
     onClose: () => void;
     user: AppUserCustomData & { id: string; manualDebt?: number };
+    groupId?: string | null; // Optional context
     onUpdate: () => void; // Trigger refresh in parent
 }
 
-export default function UserDetailModal({ isOpen, onClose, user, onUpdate }: UserDetailModalProps) {
+export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpdate }: UserDetailModalProps) {
     const {
         pendingMatches,
         paidMatches,
@@ -27,7 +30,7 @@ export default function UserDetailModal({ isOpen, onClose, user, onUpdate }: Use
         toggleMatchPayment,
         updateManualDebt,
         processSmartPayment
-    } = usePlayerDebts(user?.id);
+    } = usePlayerDebts(user?.id, groupId || undefined);
 
     // Auth Context for valid groups to manage
     const { user: currentUser, userData: currentUserData } = useAuthContext();
@@ -59,12 +62,25 @@ export default function UserDetailModal({ isOpen, onClose, user, onUpdate }: Use
         }
     };
 
+    // State for Danger Action Confirmation
+    const [dangerConfirm, setDangerConfirm] = useState<{
+        isOpen: boolean;
+        title: string;
+        message: string;
+        actionText: string;
+        type: 'kick' | 'ban';
+        onConfirm: () => void;
+    } | null>(null);
+
     // Validar y tipar explícitamente los datos que vienen del user
     const [editNickname, setEditNickname] = useState(user.nickname || "");
     const [editPosition, setEditPosition] = useState(user.position || "CM");
     const [editStrongFoot, setEditStrongFoot] = useState<'right' | 'left' | 'ambidextrous'>(user.strongFoot as any || "right");
 
+    const canEditProfile = currentUserData?.role === 'superadmin' || currentUser?.uid === user.id;
+
     const startEditingName = () => {
+        if (!canEditProfile) return;
         setEditNameValue(user.displayName || "");
         setEditNickname(user.nickname || "");
         setEditPosition(user.position || "CM");
@@ -214,6 +230,59 @@ export default function UserDetailModal({ isOpen, onClose, user, onUpdate }: Use
         }
     };
 
+    const handleKickFromGroup = () => {
+        if (!groupId) return;
+        setDangerConfirm({
+            isOpen: true,
+            title: "Expulsar del Grupo",
+            message: `¿Seguro que quieres expulsar a ${user.displayName} de este grupo? Esta acción solo revoca el acceso a este grupo.`,
+            actionText: "Expulsar",
+            type: 'kick',
+            onConfirm: async () => {
+                setProcessingId('kick-group');
+                try {
+                    await toggleGroupAssociation(groupId, true);
+                    toast.success("Usuario expulsado.");
+                    onClose();
+                } catch (error) {
+                    console.error("Error kicking user:", error);
+                    toast.error("Error al expulsar.");
+                } finally {
+                    setProcessingId(null);
+                    setDangerConfirm(null);
+                }
+            }
+        });
+    };
+
+    const handleGlobalBan = () => {
+        setDangerConfirm({
+            isOpen: true,
+            title: "ELIMINAR CUENTA Y BANEAR",
+            message: `PELIGRO: ¿Estás seguro de que quieres ELIMINAR PERMANENTEMENTE a ${user.displayName}? Esta acción borrará estadísticas, deudas y todos sus datos. NO SE PUEDE DESHACER.`,
+            actionText: "ELIMINAR Y BANEAR",
+            type: 'ban',
+            onConfirm: async () => {
+                // Double check implicit in clicking the red button in UI
+                setProcessingId('global-ban');
+                try {
+                    if (!currentUser) return;
+                    // @ts-ignore
+                    await UserService.deleteUserFull({ ...currentUserData, uid: currentUser.uid, role: currentUserData?.role || 'user' }, user.id);
+                    toast.success("Usuario eliminado globalmente.");
+                    onClose();
+                    onUpdate();
+                } catch (error) {
+                    console.error("Error banning user:", error);
+                    toast.error("Error al eliminar usuario.");
+                } finally {
+                    setProcessingId(null);
+                    setDangerConfirm(null);
+                }
+            }
+        });
+    };
+
     if (!isOpen) return null;
 
     const isDebt = totalDebt > 0.01;
@@ -260,13 +329,44 @@ export default function UserDetailModal({ isOpen, onClose, user, onUpdate }: Use
     }
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-6 overflow-y-auto py-10">
             <div
                 className="absolute inset-0 bg-black/80 backdrop-blur-sm transition-opacity"
                 onClick={onClose}
             />
 
-            <div className="relative w-[95vw] max-w-2xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl flex flex-col max-h-[85vh]">
+            <div className="relative w-full sm:w-[95vw] max-w-2xl bg-slate-900 border-t sm:border border-slate-700 rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[90vh] sm:h-auto overflow-hidden animate-in slide-in-from-bottom-5 sm:slide-in-from-bottom-0 sm:zoom-in-95">
+
+                {/* DANGER CONFIRM OVERLAY */}
+                {dangerConfirm?.isOpen && (
+                    <div className="absolute inset-0 z-[60] bg-black/90 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in duration-200">
+                        <div className="bg-slate-900 border border-red-500/30 p-6 rounded-xl max-w-sm w-full shadow-2xl space-y-4 text-center">
+                            <div className="mx-auto w-12 h-12 bg-red-500/20 rounded-full flex items-center justify-center text-red-500 mb-2">
+                                <AlertTriangle className="w-6 h-6" />
+                            </div>
+                            <h3 className="text-xl font-bold text-white">{dangerConfirm.title}</h3>
+                            <p className="text-slate-300 text-sm">{dangerConfirm.message}</p>
+
+                            <div className="grid gap-3 pt-2">
+                                <button
+                                    onClick={dangerConfirm.onConfirm}
+                                    disabled={!!processingId}
+                                    className="w-full py-3 bg-red-600 hover:bg-red-500 text-white font-bold rounded-lg shadow-lg shadow-red-900/20 flex items-center justify-center gap-2"
+                                >
+                                    {processingId ? <Loader2 className="w-4 h-4 animate-spin" /> : <Ban className="w-4 h-4" />}
+                                    {dangerConfirm.actionText}
+                                </button>
+                                <button
+                                    onClick={() => setDangerConfirm(null)}
+                                    disabled={!!processingId}
+                                    className="w-full py-2 text-slate-400 hover:text-white text-sm"
+                                >
+                                    Cancelar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* OVERLAY DE CONFIRMACIÓN DE PAGO */}
                 {showPaymentConfirm && (
@@ -407,9 +507,11 @@ export default function UserDetailModal({ isOpen, onClose, user, onUpdate }: Use
                                 <div className="group">
                                     <h3 className="text-lg font-bold text-white flex items-center gap-2">
                                         {user.displayName}
-                                        <button onClick={startEditingName} className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-500 hover:text-blue-400 p-1">
-                                            <Pencil className="w-3 h-3" />
-                                        </button>
+                                        {canEditProfile && (
+                                            <button onClick={startEditingName} className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-500 hover:text-blue-400 p-1">
+                                                <Pencil className="w-3 h-3" />
+                                            </button>
+                                        )}
                                     </h3>
                                     {user.nickname && <p className="text-sm text-yellow-500 font-medium italic">"{user.nickname}"</p>}
                                     {(user.position || user.strongFoot) && (
@@ -683,6 +785,58 @@ export default function UserDetailModal({ isOpen, onClose, user, onUpdate }: Use
                     )}
 
                 </div>
+
+                {/* DANGER ZONE */}
+                {(groupId || currentUserData?.role === 'superadmin') && (user.id !== currentUser?.uid) && (
+                    <div className="p-6 border-t border-slate-800 bg-red-950/10">
+                        <h4 className="text-xs font-bold text-red-500 uppercase flex items-center gap-2 mb-3">
+                            <AlertTriangle className="w-4 h-4" />
+                            Zona de Peligro
+                        </h4>
+
+                        <div className="flex flex-col gap-3">
+                            {/* Option 1: Kick from Context Group */}
+                            {groupId && (
+                                <button
+                                    onClick={handleKickFromGroup}
+                                    disabled={!!processingId}
+                                    className="w-full flex items-center justify-between p-3 bg-red-900/20 hover:bg-red-900/30 border border-red-900/30 hover:border-red-500/50 rounded-lg group transition-all"
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <div className="bg-red-900/30 p-2 rounded text-red-400 group-hover:text-red-300">
+                                            <UserMinus className="w-5 h-5" />
+                                        </div>
+                                        <div className="text-left">
+                                            <div className="text-sm font-bold text-red-200 group-hover:text-white">Expulsar del Grupo</div>
+                                            <div className="text-xs text-red-400/70">Solo elimina a este usuario de este grupo</div>
+                                        </div>
+                                    </div>
+                                    {processingId === 'kick-group' && <Loader2 className="w-4 h-4 animate-spin text-red-500" />}
+                                </button>
+                            )}
+
+                            {/* Option 2: Global Ban (Superadmin Only) */}
+                            {currentUserData?.role === 'superadmin' && (
+                                <button
+                                    onClick={handleGlobalBan}
+                                    disabled={!!processingId}
+                                    className="w-full flex items-center justify-between p-3 bg-red-950 hover:bg-red-900 border border-red-900 hover:border-red-600 rounded-lg group transition-all"
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <div className="bg-red-950 p-2 rounded text-red-500 group-hover:text-red-400">
+                                            <Ban className="w-5 h-5" />
+                                        </div>
+                                        <div className="text-left">
+                                            <div className="text-sm font-bold text-white">Eliminar Cuenta y Banear</div>
+                                            <div className="text-xs text-red-400">Acción destructiva global. Irreversible.</div>
+                                        </div>
+                                    </div>
+                                    {processingId === 'global-ban' && <Loader2 className="w-4 h-4 animate-spin text-red-500" />}
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );

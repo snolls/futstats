@@ -17,6 +17,8 @@ import GroupFinderModal from '@/components/GroupFinderModal';
 import { Plus, Users, Settings, Shield, Contact, Search } from 'lucide-react';
 import { collection, query, orderBy, limit, onSnapshot, where, getDocs, updateDoc, doc, documentId } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { toast } from 'sonner';
+import ConfirmationModal from '@/components/ConfirmationModal';
 
 interface GroupData {
   id: string;
@@ -62,6 +64,17 @@ export default function Home() {
   // --- ADMIN REQUESTS STATE (Superadmin Only) ---
   const [adminRequests, setAdminRequests] = useState<any[]>([]);
 
+  // Confirmation Modal State
+  const [confirmModal, setConfirmModal] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'info' as 'info' | 'danger',
+    onConfirm: () => { }
+  });
+
+  const closeConfirm = () => setConfirmModal(prev => ({ ...prev, isOpen: false }));
+
   useEffect(() => {
     if (role !== 'superadmin' || activeTab !== 'overview') return;
 
@@ -73,18 +86,25 @@ export default function Home() {
     return () => unsub();
   }, [role, activeTab]);
 
-  const handleAdminRequest = async (userId: string, action: 'approve' | 'reject') => {
-    if (!confirm(`¿${action === 'approve' ? 'Aprobar' : 'Rechazar'} solicitud de admin?`)) return;
-    try {
-      await updateDoc(doc(db, 'users', userId), {
-        role: action === 'approve' ? 'admin' : 'user', // If rejected, stay user (or explicit logic)
-        adminRequestStatus: action === 'approve' ? null : 'rejected'
-      });
-      alert(`Solicitud ${action === 'approve' ? 'aprobada' : 'rechazada'}.`);
-    } catch (e) {
-      console.error("Error managing request:", e);
-      alert("Error al procesar solicitud.");
-    }
+  const handleAdminRequest = (userId: string, action: 'approve' | 'reject') => {
+    setConfirmModal({
+      isOpen: true,
+      title: action === 'approve' ? 'Aprobar Solicitud' : 'Rechazar Solicitud',
+      message: `¿Estás seguro de que quieres ${action === 'approve' ? 'aprobar' : 'rechazar'} esta solicitud de administrador?`,
+      type: action === 'approve' ? 'info' : 'danger',
+      onConfirm: async () => {
+        try {
+          await updateDoc(doc(db, 'users', userId), {
+            role: action === 'approve' ? 'admin' : 'user',
+            adminRequestStatus: action === 'approve' ? null : 'rejected'
+          });
+          toast.success(`Solicitud ${action === 'approve' ? 'aprobada' : 'rechazada'}.`);
+        } catch (e) {
+          console.error("Error managing request:", e);
+          toast.error("Error al procesar solicitud.");
+        }
+      }
+    });
   };
 
   // --- EFECTOS (USEEFFECT) ---
@@ -284,15 +304,22 @@ export default function Home() {
             <div className="flex justify-center sm:justify-end">
               {!userData?.adminRequestStatus ? (
                 <button
-                  onClick={async () => {
-                    if (!confirm("¿Quieres solicitar permisos de Organizador (Admin)? Esto te permitirá crear grupos y partidos.")) return;
-                    try {
-                      await updateDoc(doc(db, 'users', user.uid), { adminRequestStatus: 'pending' });
-                      alert("Solicitud enviada. Un Superadmin la revisará pronto.");
-                    } catch (e) {
-                      console.error("Error requesting admin:", e);
-                      alert("Error al enviar solicitud.");
-                    }
+                  onClick={() => {
+                    setConfirmModal({
+                      isOpen: true,
+                      title: "Solicitar Rol de Organizador",
+                      message: "¿Quieres solicitar permisos de Organizador (Admin)? Esto te permitirá crear grupos y partidos. Un Superadmin deberá aprobar tu solicitud.",
+                      type: 'info',
+                      onConfirm: async () => {
+                        try {
+                          await updateDoc(doc(db, 'users', user.uid), { adminRequestStatus: 'pending' });
+                          toast.success("Solicitud enviada correctamente.");
+                        } catch (e) {
+                          console.error("Error requesting admin:", e);
+                          toast.error("Error al enviar solicitud.");
+                        }
+                      }
+                    });
                   }}
                   className="px-4 py-2 text-sm font-medium text-amber-500 border border-amber-500/30 rounded-lg hover:bg-amber-900/10 transition-colors flex items-center gap-2"
                 >
@@ -375,7 +402,7 @@ export default function Home() {
                       key={match.id}
                       match={match}
                       isAdmin={role === 'admin' || role === 'superadmin'}
-                      onViewDetails={(id) => alert(`Detalles (Pendiente): ${id}`)}
+                      onViewDetails={(id) => toast.info(`Detalles del partido ${id} próximamente.`)}
                     />
                   ))}
                 </div>
@@ -532,6 +559,15 @@ export default function Home() {
           <GroupFinderModal
             isOpen={isGroupFinderOpen}
             onClose={() => setIsGroupFinderOpen(false)}
+          />
+
+          <ConfirmationModal
+            isOpen={confirmModal.isOpen}
+            onClose={closeConfirm}
+            onConfirm={confirmModal.onConfirm}
+            title={confirmModal.title}
+            message={confirmModal.message}
+            type={confirmModal.type}
           />
 
           {/* --- ONBOARDING OBLIGATORIO --- */}

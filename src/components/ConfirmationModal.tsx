@@ -26,13 +26,13 @@ export default function ConfirmationModal({
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6 overflow-y-auto py-10">
             <div
                 className="absolute inset-0 bg-black/80 backdrop-blur-sm transition-opacity"
                 onClick={onClose}
             />
 
-            <div className="relative bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-[95%] max-w-sm p-6 transform transition-all scale-100">
+            <div className="relative bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-[95%] max-w-sm p-6 transform transition-all scale-100 animate-in zoom-in-95">
                 <div className="flex flex-col items-center text-center space-y-4">
                     <div className={`p-3 rounded-full ${type === 'danger' ? 'bg-red-500/10 text-red-500' : 'bg-blue-500/10 text-blue-500'}`}>
                         {type === 'danger' ? <AlertTriangle className="w-8 h-8" /> : <Info className="w-8 h-8" />}

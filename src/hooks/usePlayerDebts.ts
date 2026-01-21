@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
-import { collection, query, where, onSnapshot, doc, updateDoc, getDoc, increment, documentId } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, getDoc, increment } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { AppUserCustomData } from '@/types/user';
 
 export interface DebtMatchItem {
     statId: string;
     matchId: string;
+    groupId?: string;
     date: Date;
     price: number;
     matchDateString: string;
@@ -13,41 +15,49 @@ export interface DebtMatchItem {
 
 interface UsePlayerDebtsReturn {
     pendingMatches: DebtMatchItem[];
-    paidMatches: DebtMatchItem[]; // Historial reciente de pagados
-    totalDebt: number;   // matchesDebt + manualDebt
-    matchesDebt: number; // Solo deuda depuradas
-    manualDebt: number;  // Deuda manual / ajustes
+    paidMatches: DebtMatchItem[];
+    totalDebt: number;
+    matchesDebt: number;
+    manualDebt: number;
     loading: boolean;
     toggleMatchPayment: (statId: string, currentStatus: 'PENDING' | 'PAID') => Promise<void>;
     updateManualDebt: (amount: number) => Promise<void>;
     processSmartPayment: (amount: number) => Promise<void>;
 }
 
-export function usePlayerDebts(userId: string): UsePlayerDebtsReturn {
+export function usePlayerDebts(userId: string, groupId?: string): UsePlayerDebtsReturn {
     const [pendingMatches, setPendingMatches] = useState<DebtMatchItem[]>([]);
     const [paidMatches, setPaidMatches] = useState<DebtMatchItem[]>([]);
     const [manualDebt, setManualDebt] = useState(0);
     const [loading, setLoading] = useState(true);
 
-    // 1. Escuchar perfil de usuario (Deuda Manual)
+    // 1. Listen to User (for Group Debt)
     useEffect(() => {
         if (!userId) return;
         const unsub = onSnapshot(doc(db, 'users', userId), (snap) => {
             if (snap.exists()) {
-                const data = snap.data();
-                setManualDebt(data.debt ?? (data.manualDebt || 0));
+                const data = snap.data() as AppUserCustomData;
+                if (groupId) {
+                    // Scoped: Get debt for this group
+                    setManualDebt(data.groupDebts?.[groupId] || 0);
+                } else {
+                    // Global (Superadmin view?): Sum all debts or show 0?
+                    // User prompt implies strict separation. If no groupId, maybe return 0 or global aggregation?
+                    // For safety, defaulting to 0 or aggregation if required.
+                    // Let's aggregate for logic consistency if needed, strictly summing Record values.
+                    const allDebts = Object.values(data.groupDebts || {}).reduce((a, b) => a + b, 0);
+                    setManualDebt(allDebts);
+                }
             }
         });
         return () => unsub();
-    }, [userId]);
+    }, [userId, groupId]);
 
-    // 2. Escuchar match_stats del usuario
+    // 2. Listen to Matches
     useEffect(() => {
         if (!userId) return;
         setLoading(true);
 
-        // Traemos todos los stats del usuario para poder mostrar historial
-        // En una app real con miles de partidos, limitaríamos con limit(50) o por fecha.
         const q = query(
             collection(db, 'match_stats'),
             where('userId', '==', userId)
@@ -63,15 +73,10 @@ export function usePlayerDebts(userId: string): UsePlayerDebtsReturn {
                 return;
             }
 
-            // Obtener detalles de los partidos (Fecha y Precio)
-            // Agrupamos IDs para hacer fetch eficiente (aunque Firestore no tiene 'IN' ilimitado, 
-            // asumimos volumen razonable o hacemos fetch individual por simplicidad y caché del cliente)
             const matchIds = Array.from(new Set(stats.map((s: any) => s.matchId as string)));
 
-            // Fetch de partidos
-            // Nota: Podríamos usar getDocs(query(collection(db, 'matches'), where(documentId(), 'in', matchIds...)))
-            // pero 'in' soporta max 10. Hacemos Promise.all con getDoc que es paralelo.
-            const matchesData: Record<string, { date: Date, price: number }> = {};
+            // Fetch Matches to get GroupID and Date
+            const matchesData: Record<string, { date: Date, price: number, groupId: string }> = {};
 
             await Promise.all(matchIds.map(async (mid) => {
                 const mSnap = await getDoc(doc(db, 'matches', mid));
@@ -79,18 +84,23 @@ export function usePlayerDebts(userId: string): UsePlayerDebtsReturn {
                     const d = mSnap.data();
                     matchesData[mid] = {
                         date: d.date?.toDate ? d.date.toDate() : new Date(d.date),
-                        price: d.pricePerPlayer || 0
+                        price: d.pricePerPlayer || 0,
+                        groupId: d.groupId
                     };
                 }
             }));
 
-            // Procesar y combinar
             const processed: DebtMatchItem[] = stats.map((s: any) => {
                 const mData = matchesData[s.matchId];
                 if (!mData) return null;
+
+                // IMPORTANT: Filter by groupId if provided
+                if (groupId && mData.groupId !== groupId) return null;
+
                 return {
                     statId: s.id,
                     matchId: s.matchId,
+                    groupId: mData.groupId,
                     date: mData.date,
                     price: mData.price,
                     matchDateString: mData.date.toLocaleDateString('es-ES', {
@@ -100,28 +110,32 @@ export function usePlayerDebts(userId: string): UsePlayerDebtsReturn {
                 };
             }).filter(Boolean) as DebtMatchItem[];
 
-            // Ordenar por fecha descendente
             processed.sort((a, b) => b.date.getTime() - a.date.getTime());
 
-            // Separar listas
             setPendingMatches(processed.filter(m => m.paymentStatus !== 'PAID'));
             setPaidMatches(processed.filter(m => m.paymentStatus === 'PAID'));
 
             setLoading(false);
-
         }, (err) => {
             console.error("Error fetching dependencies:", err);
             setLoading(false);
         });
 
         return () => unsubscribe();
-    }, [userId]);
+    }, [userId, groupId]);
 
-    // Totales
+    // Calculations
+    // Matches Debt: Sum of pending match prices
     const matchesDebt = pendingMatches.reduce((acc, m) => acc + m.price, 0);
-    const totalDebt = matchesDebt + manualDebt; // Asumiendo deuda manual positiva = debe
 
-    // Acciones
+    // Total Debt:
+    // If we rely on `groupDebts` (manualDebt) keeping track of adjustments independently of matches (hybrid system),
+    // we sum them.
+    // However, usually 'groupDebts' might eventually track EVERYTHING if we sync matches to it.
+    // But currently, the system seems to be: Match Debt is dynamic (calc'd from matches), Manual Debt is stored in user.
+    // So Total = Matches + Manual.
+    const totalDebt = matchesDebt + manualDebt;
+
     const toggleMatchPayment = async (statId: string, currentStatus: 'PENDING' | 'PAID') => {
         const newStatus = currentStatus === 'PENDING' ? 'PAID' : 'PENDING';
         try {
@@ -135,11 +149,13 @@ export function usePlayerDebts(userId: string): UsePlayerDebtsReturn {
     };
 
     const updateManualDebt = async (amount: number) => {
+        if (!groupId) {
+            console.warn("Cannot update manual debt without a specific Group ID context.");
+            return;
+        }
         try {
-            // Actualizamos ambos campos para consistencia
             await updateDoc(doc(db, 'users', userId), {
-                debt: increment(amount),
-                manualDebt: increment(amount)
+                [`groupDebts.${groupId}`]: increment(amount)
             });
         } catch (error) {
             console.error("Error updating manual debt:", error);
@@ -147,45 +163,31 @@ export function usePlayerDebts(userId: string): UsePlayerDebtsReturn {
         }
     };
 
-    /**
-     * Procesa un pago inteligente "en cascada".
-     * 1. Paga partidos pendientes comenzando desde el más antiguo.
-     * 2. Si sobra dinero, lo descuenta de la deuda manual.
-     */
     const processSmartPayment = async (amount: number) => {
         if (!userId || amount <= 0) return;
-
         let remainingAmount = amount;
 
-        // 1. Clonar y ordenar partidos pendientes por fecha ASCENDENTE (del más viejo al más nuevo)
+        // 1. Pay Oldest Matches
         const sortedPending = [...pendingMatches].sort((a, b) => a.date.getTime() - b.date.getTime());
 
         for (const match of sortedPending) {
             if (remainingAmount >= match.price) {
-                // Hay saldo suficiente para pagar este partido
                 try {
-                    await toggleMatchPayment(match.statId, 'PENDING'); // Cambia a PAID
+                    await toggleMatchPayment(match.statId, 'PENDING');
                     remainingAmount -= match.price;
                 } catch (error) {
-                    console.error(`Error pagando partido ${match.matchId}:`, error);
-                    // Si falla un pago, detenemos el proceso para evitar inconsistencias graves?
-                    // O continuamos? Por seguridad, mejor detenerse o solo loguear.
-                    // En este caso, continuamos intentando lo siguiente.
+                    console.error(`Error paying match ${match.matchId}:`, error);
                 }
             } else {
-                // No alcanza para pagar este partido completo
-                // Se detiene el pago de partidos
                 break;
             }
         }
 
-        // 2. Si sobra dinero, descontamos de la deuda manual
-        if (remainingAmount > 0) {
-            // Restar deuda manual significa 'incrementar' con valor negativo
-            // Si el Amount es positivo (ej: pagó 20€), y sobraron 3€,
-            // queremos REDUCIR la deuda en 3€.
-            // updateManualDebt suma el valor, así que pasamos negativo.
-            // NOTA: Esto permite que 'debt' se vuelva negativo, lo cual representa SALDO A FAVOR (Crédito).
+        // 2. Reduce Manual Debt (Balance)
+        if (remainingAmount > 0 && groupId) {
+            // Pay = Subtract from debt
+            // If manual debt is 10, and we pay 3, we subtract 3.
+            // updateManualDebt(x) increments. So passed -remaining.
             await updateManualDebt(-remainingAmount);
         }
     };

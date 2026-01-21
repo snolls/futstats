@@ -19,9 +19,9 @@ export const UserService = {
      * @param adminUser The superadmin performing the deletion
      * @param targetUserId The ID of the user to delete
      */
-    async deleteUserFull(adminUser: AppUserCustomData, targetUserId: string) {
+    async deleteUserFull(adminUser: AppUserCustomData & { uid: string }, targetUserId: string) {
         if (adminUser.role !== 'superadmin') {
-            throw new Error("Unauthorized: Only Superadmin can delete users.");
+            throw new Error("Unauthorized: Only Superadmin can delete users globally.");
         }
 
         const batch = writeBatch(db);
@@ -39,30 +39,28 @@ export const UserService = {
             });
         });
 
-        // 2. Anonymize/Delete Stats in Matches (Optional/Heavy)
-        // Optimization: We could query 'match_stats' by userId and delete them
+        // 2. Delete Stats
         const statsRef = collection(db, "match_stats");
         const statsQ = query(statsRef, where("userId", "==", targetUserId));
         const statsSnap = await getDocs(statsQ);
 
-        statsSnap.forEach((statDoc) => {
-            // Option A: Delete stats
-            // batch.delete(statDoc.ref);
-
-            // Option B: Anonymize (Better for history)
-            batch.update(statDoc.ref, {
-                displayName: "Usuario Eliminado",
-                userId: "deleted_user"
-            });
+        statsSnap.docs.forEach((statDoc) => {
+            batch.delete(statDoc.ref);
         });
 
-        // 3. Delete the User Document
+        // 3. Delete Group Requests
+        const requestsQ = query(collection(db, "group_requests"), where("userId", "==", targetUserId));
+        const requestsSnap = await getDocs(requestsQ);
+        requestsSnap.docs.forEach((reqDoc) => {
+            batch.delete(reqDoc.ref);
+        });
+
+        // 4. Delete the User Document
         batch.delete(userRef);
 
         await batch.commit();
 
-        // 4. Notification (Simulation)
-        console.log(`[EMAIL SERVICE] Email sent to user ${targetUserId}: Your account has been permanently deleted.`);
+        console.log(`User ${targetUserId} fully deleted by ${adminUser.uid}`);
     },
 
     /**
