@@ -1,269 +1,627 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import { X, Calendar, MapPin, DollarSign, AlertCircle } from 'lucide-react';
-import { collection, addDoc, getDocs, Timestamp, query, where, documentId } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
-import { useAuth } from '@/hooks/useAuth';
-import { AppUserCustomData } from '@/types/user';
-import { MatchStats } from '@/types/business';
+import { useState, useEffect } from "react";
+import { X, Calendar, Euro, Users, AlertTriangle, Loader2, Trophy, Shield, UserPlus } from "lucide-react";
+import { addDoc, collection, serverTimestamp, getDocs, query, where, writeBatch, doc, documentId, increment } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import { useAuthContext } from "@/context/AuthContext";
+import { createGuestUser } from "@/lib/users";
+
+interface UserData {
+    id: string;
+    displayName: string;
+    email: string;
+    photoURL?: string;
+    debt?: number;
+    manualDebt?: number;
+    role?: string;
+}
+
+interface GroupData {
+    id: string;
+    name: string;
+    members?: string[];
+    adminIds?: string[];
+}
+
+interface GuestUser {
+    id: string;
+    displayName: string;
+    isGuest: true;
+}
 
 interface CreateMatchModalProps {
     isOpen: boolean;
     onClose: () => void;
 }
 
-interface PlayerSelection extends AppUserCustomData {
-    uid: string;
-}
+const GAME_FORMATS = ["5vs5", "6vs6", "7vs7", "8vs8", "9vs9", "10vs10", "11vs11"];
+
+const FORMAT_REQUIREMENTS: Record<string, number> = {
+    "5vs5": 10,
+    "6vs6": 12,
+    "7vs7": 14,
+    "8vs8": 16,
+    "9vs9": 18,
+    "10vs10": 20,
+    "11vs11": 22
+};
 
 export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalProps) {
-    const { user } = useAuth();
+    const { user, userData } = useAuthContext();
 
     // Form State
-    const [date, setDate] = useState('');
-    const [location, setLocation] = useState('');
-    const [selectedPlayers, setSelectedPlayers] = useState<string[]>([]); // Array of UIDs
+    const [selectedGroupId, setSelectedGroupId] = useState("");
+    const [format, setFormat] = useState("7vs7");
+    const [date, setDate] = useState("");
+    const [price, setPrice] = useState("");
+    const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+    const [guests, setGuests] = useState<GuestUser[]>([]); // Deprecated/Legacy ad-hoc guests if needed, but we focus on User-Guests now
+    const [guestNameInput, setGuestNameInput] = useState("");
+    const [isCreatingGuest, setIsCreatingGuest] = useState(false);
+    const [showGuestInput, setShowGuestInput] = useState(false);
 
     // Data State
-    const [availablePlayers, setAvailablePlayers] = useState<PlayerSelection[]>([]);
-    const [debts, setDebts] = useState<Record<string, boolean>>({}); // uid -> hasDebt
-    const [loading, setLoading] = useState(false);
-    const [validating, setValidating] = useState(false);
-    const [error, setError] = useState('');
-    const [success, setSuccess] = useState('');
+    const [myGroups, setMyGroups] = useState<GroupData[]>([]);
+    const [availableUsers, setAvailableUsers] = useState<UserData[]>([]);
+    const [usersWithDebt, setUsersWithDebt] = useState<Set<string>>(new Set());
 
-    // Fetch available players (Mocking "All Users" for now, ideally strictly group members)
+    // UI State
+    const [isLoading, setIsLoading] = useState(false);
+    const [isFetchingGroups, setIsFetchingGroups] = useState(false);
+    const [isFetchingUsers, setIsFetchingUsers] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    // 1. Fetch Permitted Groups on Mount
     useEffect(() => {
-        const fetchPlayers = async () => {
-            try {
-                const q = query(collection(db, 'users'));
-                const snapshot = await getDocs(q);
-                const players: PlayerSelection[] = [];
-                snapshot.forEach(doc => {
-                    players.push({ uid: doc.id, ...doc.data() as AppUserCustomData });
-                });
-                setAvailablePlayers(players);
-            } catch (e) {
-                console.error("Error fetching players", e);
-            }
-        };
-        if (isOpen) fetchPlayers();
-    }, [isOpen]);
+        if (isOpen && user && userData) {
+            const fetchGroups = async () => {
+                setIsFetchingGroups(true);
+                setError(null);
+                try {
+                    let q;
+                    if (userData.role === 'superadmin') {
+                        q = query(collection(db, "groups"));
+                    } else {
+                        q = query(collection(db, "groups"), where("adminIds", "array-contains", user.uid));
+                    }
 
-    // DEBT VALIDATION LOGIC
+                    const snapshot = await getDocs(q);
+                    const groups = snapshot.docs.map(doc => ({
+                        id: doc.id,
+                        ...doc.data()
+                    })) as GroupData[];
+
+                    setMyGroups(groups);
+
+                    if (groups.length === 1) {
+                        setSelectedGroupId(groups[0].id);
+                    }
+                } catch (err) {
+                    console.error("Error fetching groups:", err);
+                    setError("Error al cargar tus grupos.");
+                } finally {
+                    setIsFetchingGroups(false);
+                }
+            };
+
+            fetchGroups();
+        }
+    }, [isOpen, user, userData]);
+
+    // 2. Fetch Users when Group Changes
     useEffect(() => {
-        const validateDebts = async () => {
-            if (selectedPlayers.length === 0) return;
+        if (!selectedGroupId || !isOpen) {
+            setAvailableUsers([]);
+            return;
+        }
 
-            setValidating(true);
-            const newDebts: Record<string, boolean> = {};
+        const fetchGroupMembers = async () => {
+            setIsFetchingUsers(true);
+            setError(null);
+            setSelectedUserIds([]);
+            setGuests([]);
 
-            // Optimize: Check only newly selected or check all in one query
-            // Query match_stats where paymentStatus == 'PENDING' AND playerId IN selectedPlayers
             try {
-                // Firestore 'in' query supports up to 10 items. If > 10, need multiple queries or client-side filtering.
-                // For simplicity, we'll fetch pending stats for these players.
+                const group = myGroups.find(g => g.id === selectedGroupId);
+                if (!group) return;
 
-                // Chunking for 'in' query limit or just map over promises if list is small enough
-                const statsRef = collection(db, 'match_stats');
-                const q = query(
-                    statsRef,
-                    where('paymentStatus', '==', 'PENDING'),
-                    where('playerId', 'in', selectedPlayers.slice(0, 10)) // Limit restriction handling needed for prod
-                );
+                let membersToFetch = new Set([...(group.members || []), ...(group.adminIds || [])]);
+                const memberList = Array.from(membersToFetch);
 
-                const snapshot = await getDocs(q);
-                snapshot.forEach(doc => {
-                    const data = doc.data() as MatchStats;
-                    newDebts[data.playerId] = true;
-                });
+                if (memberList.length === 0) {
+                    setAvailableUsers([]);
+                    setIsFetchingUsers(false);
+                    return;
+                }
 
-                setDebts(newDebts);
-            } catch (e) {
-                console.error("Error validating debts", e);
+                const users: UserData[] = [];
+                const chunkSize = 10;
+
+                for (let i = 0; i < memberList.length; i += chunkSize) {
+                    const chunk = memberList.slice(i, i + chunkSize);
+                    if (chunk.length > 0) {
+                        const q = query(
+                            collection(db, "users"),
+                            where(documentId(), "in", chunk)
+                        );
+                        const snapshot = await getDocs(q);
+                        snapshot.forEach(doc => {
+                            users.push({ id: doc.id, ...doc.data() } as UserData);
+                        });
+                    }
+                }
+
+                setAvailableUsers(users);
+
+                const debts = new Set<string>();
+
+                for (let i = 0; i < users.length; i += chunkSize) {
+                    const userChunk = users.slice(i, i + chunkSize);
+                    const ids = userChunk.map(u => u.id);
+
+                    if (ids.length > 0) {
+                        const debtQ = query(
+                            collection(db, "match_stats"),
+                            where("paymentStatus", "==", "PENDING"),
+                            where("userId", "in", ids)
+                        );
+                        const debtSnap = await getDocs(debtQ);
+                        debtSnap.forEach(doc => {
+                            const data = doc.data();
+                            if (data.userId) debts.add(data.userId);
+                        });
+                    }
+                }
+                setUsersWithDebt(debts);
+
+            } catch (err) {
+                console.error("Error fetching group members:", err);
+                setError("Error al cargar jugadores para este grupo.");
             } finally {
-                setValidating(false);
+                setIsFetchingUsers(false);
             }
         };
 
-        const debounce = setTimeout(validateDebts, 500);
-        return () => clearTimeout(debounce);
-    }, [selectedPlayers]);
+        fetchGroupMembers();
+    }, [selectedGroupId, isOpen, myGroups]);
 
-    const togglePlayer = (uid: string) => {
-        setSelectedPlayers(prev =>
-            prev.includes(uid) ? prev.filter(id => id !== uid) : [...prev, uid]
+
+    const toggleUser = (userId: string) => {
+        setSelectedUserIds(prev =>
+            prev.includes(userId)
+                ? prev.filter(id => id !== userId)
+                : [...prev, userId]
         );
     };
 
+    const handleQuickGuest = async () => {
+        if (!guestNameInput.trim()) return;
+
+        setIsCreatingGuest(true);
+        try {
+            const name = guestNameInput.trim();
+            // 1. Create in Firestore via Utility
+            // Pass selectedGroupId to link this guest to the current group context
+            const newGuestData = await createGuestUser(name, 0, selectedGroupId ? [selectedGroupId] : []);
+
+            // 2. Add to Local State
+            const newGuestUser: UserData = {
+                id: newGuestData.id,
+                displayName: newGuestData.displayName || name,
+                email: newGuestData.email || "",
+                photoURL: newGuestData.photoURL || undefined,
+                debt: 0,
+                manualDebt: 0,
+                role: 'guest'
+            };
+
+            setAvailableUsers(prev => [newGuestUser, ...prev]);
+
+            // 3. Auto-Select
+            setSelectedUserIds(prev => [...prev, newGuestUser.id]);
+
+            // 4. Reset & Feedback
+            setGuestNameInput("");
+            console.log("Guest created and selected:", name);
+
+        } catch (error) {
+            console.error("Error creating quick guest:", error);
+            setError("Error al crear al invitado.");
+        } finally {
+            setIsCreatingGuest(false);
+            setShowGuestInput(false); // Hide input after creation
+        }
+    };
+
+    const removeGuest = (guestId: string) => {
+        setGuests(prev => prev.filter(g => g.id !== guestId));
+    };
+
+    const hasSelectedDebtors = selectedUserIds.some(id => usersWithDebt.has(id));
+    const totalSelected = selectedUserIds.length + guests.length;
+    const requiredPlayers = FORMAT_REQUIREMENTS[format] || 0;
+    const isPlayerCountValid = totalSelected === requiredPlayers;
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (selectedPlayers.length === 0) {
-            setError("Selecciona al menos un jugador");
-            return;
-        }
+        if (!date || !price || !isPlayerCountValid || !user || !selectedGroupId) return;
 
-        // Block if any debt
-        const hasDebts = selectedPlayers.some(uid => debts[uid]);
-        if (hasDebts) {
-            setError("No se puede crear el partido. Hay jugadores con deudas pendientes.");
-            return;
-        }
-
-        setLoading(true);
-        setError('');
+        setIsLoading(true);
+        setError(null);
 
         try {
+            const startDateTime = new Date(date);
+
             // 1. Create Match
-            const matchRef = await addDoc(collection(db, 'matches'), {
-                date: date ? Timestamp.fromDate(new Date(date)) : Timestamp.now(),
-                location,
-                status: 'SCHEDULED',
-                createdBy: user?.uid,
-                createdAt: Timestamp.now()
+            const matchRef = await addDoc(collection(db, "matches"), {
+                groupId: selectedGroupId,
+                format: format,
+                date: startDateTime,
+                pricePerPlayer: Number(price),
+                createdBy: user.uid,
+                status: "SCHEDULED",
+                createdAt: serverTimestamp(),
+                playerCount: totalSelected,
             });
 
-            // 2. Create Initial Stats/Participation for each player
-            const promises = selectedPlayers.map(uid =>
-                addDoc(collection(db, 'match_stats'), {
+            // 2. Create Match Stats
+            const batch = writeBatch(db);
+            let autoPaidCount = 0;
+
+            // Regular Users
+            selectedUserIds.forEach(userId => {
+                const statsRef = doc(collection(db, "match_stats"));
+
+                // Lógica de Cobro Automático (Smart Pay)
+                const userObj = availableUsers.find(u => u.id === userId);
+                const currentDebt = userObj?.debt ?? 0; // Si es negativo, es SALDO A FAVOR
+                const priceNum = Number(price);
+
+                // Si tiene suficiente crédito (ej: debt es -10 y el precio es 5. -10 <= -5 es TRUE)
+                const canPayWithCredit = currentDebt <= -priceNum;
+
+                if (canPayWithCredit) {
+                    // 1. Marcar partido como PAGADO
+                    batch.set(statsRef, {
+                        matchId: matchRef.id,
+                        userId: userId,
+                        paymentStatus: "PAID", // Auto-pagado
+                        goals: 0,
+                        assists: 0,
+                        team: "PENDING",
+                        createdAt: serverTimestamp(),
+                    });
+
+                    // 2. Descontar del saldo (Incrementar deuda negativa acerca a cero)
+                    // Ej: Deuda -10. Increment(5) -> -5.
+                    const userRef = doc(db, "users", userId);
+                    batch.update(userRef, {
+                        debt: increment(priceNum),
+                        manualDebt: increment(priceNum)
+                    });
+
+                    autoPaidCount++;
+                } else {
+                    // Comportamiento normal (Pendiente)
+                    batch.set(statsRef, {
+                        matchId: matchRef.id,
+                        userId: userId,
+                        paymentStatus: "PENDING",
+                        goals: 0,
+                        assists: 0,
+                        team: "PENDING",
+                        createdAt: serverTimestamp(),
+                    });
+                }
+            });
+
+            if (autoPaidCount > 0) {
+                console.log(`✅ Se ha cobrado automáticamente a ${autoPaidCount} jugadores usando su saldo a favor.`);
+            }
+
+            // Guests (Legacy ad-hoc support, usually empty now)
+            guests.forEach(guest => {
+                const statsRef = doc(collection(db, "match_stats"));
+                batch.set(statsRef, {
                     matchId: matchRef.id,
-                    playerId: uid,
+                    userId: guest.id,
+                    displayName: guest.displayName,
+                    isGuest: true,
+                    paymentStatus: "PENDING",
                     goals: 0,
                     assists: 0,
-                    isMvp: false,
-                    paymentStatus: 'PENDING', // Default to Pending
-                    matchDate: date ? Timestamp.fromDate(new Date(date)) : Timestamp.now()
-                })
-            );
+                    team: "PENDING",
+                    createdAt: serverTimestamp(),
+                });
+            });
 
-            await Promise.all(promises);
+            await batch.commit();
 
-            setSuccess('Partido creado exitosamente');
-            setTimeout(() => {
-                onClose();
-                setSuccess('');
-                setSelectedPlayers([]);
-                setDebts({});
-            }, 1500);
-        } catch (err: any) {
-            setError(err.message);
+            setDate("");
+            setPrice("");
+            setSelectedUserIds([]);
+            setGuests([]);
+            onClose();
+
+        } catch (err) {
+            console.error("Error creating match:", err);
+            setError("Error al crear el partido. Inténtelo de nuevo.");
         } finally {
-            setLoading(false);
+            setIsLoading(false);
         }
     };
 
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 overflow-y-auto">
-            <div className="bg-gray-900 border border-gray-800 rounded-xl w-full max-w-2xl shadow-2xl my-8">
-                <div className="flex justify-between items-center p-6 border-b border-gray-800">
-                    <h2 className="text-xl font-bold text-white">Nuevo Partido</h2>
-                    <button onClick={onClose} className="text-gray-400 hover:text-white transition-colors">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 overflow-y-auto">
+            <div
+                className="absolute inset-0 bg-black/80 backdrop-blur-sm transition-opacity"
+                onClick={onClose}
+            />
+
+            <div className="relative w-[95vw] max-w-2xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl transform transition-all my-8 flex flex-col max-h-[85vh]">
+                <div className="flex items-center justify-between p-6 border-b border-slate-800 shrink-0">
+                    <h3 className="text-xl font-semibold text-white flex items-center gap-2">
+                        <Calendar className="w-5 h-5 text-green-500" />
+                        Nuevo Partido
+                    </h3>
+                    <button onClick={onClose} className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800">
                         <X className="w-5 h-5" />
                     </button>
                 </div>
 
-                <form onSubmit={handleSubmit} className="p-6 space-y-6">
-                    {error && (
-                        <div className="bg-red-500/10 border border-red-500/50 text-red-500 p-4 rounded-lg flex items-start gap-3">
-                            <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-                            <div>
-                                <p className="font-bold">Error</p>
-                                <p className="text-sm">{error}</p>
+                <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
+                    <div className="p-6 space-y-6 overflow-y-auto custom-scrollbar">
+                        {error && (
+                            <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-sm p-3 rounded-lg">
+                                {error}
+                            </div>
+                        )}
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-slate-300 flex items-center gap-2">
+                                    <Shield className="w-4 h-4 text-blue-400" />
+                                    Grupo
+                                </label>
+                                {isFetchingGroups ? (
+                                    <div className="h-10 bg-slate-800 rounded animate-pulse" />
+                                ) : (
+                                    <select
+                                        value={selectedGroupId}
+                                        onChange={(e) => setSelectedGroupId(e.target.value)}
+                                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all outline-none"
+                                        required
+                                    >
+                                        <option value="" disabled>-- Selecciona un Grupo --</option>
+                                        {myGroups.map(group => (
+                                            <option key={group.id} value={group.id}>{group.name}</option>
+                                        ))}
+                                    </select>
+                                )}
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-slate-300 flex items-center gap-2">
+                                    <Trophy className="w-4 h-4 text-yellow-500" />
+                                    Formato ({requiredPlayers} jugadores)
+                                </label>
+                                <select
+                                    value={format}
+                                    onChange={(e) => setFormat(e.target.value)}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:ring-2 focus:ring-green-500/20 focus:border-green-500 transition-all outline-none"
+                                >
+                                    {GAME_FORMATS.map(f => (
+                                        <option key={f} value={f}>{f} ({FORMAT_REQUIREMENTS[f]} jugadores)</option>
+                                    ))}
+                                </select>
                             </div>
                         </div>
-                    )}
-                    {success && <div className="bg-green-500/10 text-green-500 p-3 rounded text-sm border border-green-500/20">{success}</div>}
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-400 mb-1">Fecha y Hora</label>
-                            <div className="relative">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-slate-300">Fecha y Hora</label>
                                 <input
                                     type="datetime-local"
                                     value={date}
                                     onChange={(e) => setDate(e.target.value)}
-                                    className="w-full bg-gray-950 border border-gray-800 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-green-500 transition-colors pl-10"
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:ring-2 focus:ring-green-500/20 focus:border-green-500 transition-all outline-none [color-scheme:dark]"
+                                    required
                                 />
-                                <Calendar className="w-4 h-4 text-gray-500 absolute left-3 top-3" />
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-slate-300">Precio por Persona</label>
+                                <div className="relative">
+                                    <Euro className="absolute left-3 top-2.5 w-5 h-5 text-slate-500" />
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        step="0.5"
+                                        value={price}
+                                        onChange={(e) => setPrice(e.target.value)}
+                                        className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-10 pr-4 py-2.5 text-white focus:ring-2 focus:ring-green-500/20 focus:border-green-500 transition-all outline-none"
+                                        placeholder="0.00"
+                                        required
+                                    />
+                                </div>
                             </div>
                         </div>
-                        <div>
-                            <label className="block text-sm font-medium text-gray-400 mb-1">Ubicación</label>
-                            <div className="relative">
-                                <input
-                                    type="text"
-                                    value={location}
-                                    onChange={(e) => setLocation(e.target.value)}
-                                    placeholder="Ej: Canchas del Centro"
-                                    className="w-full bg-gray-950 border border-gray-800 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-green-500 transition-colors pl-10"
-                                />
-                                <MapPin className="w-4 h-4 text-gray-500 absolute left-3 top-3" />
+
+                        <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                                <label className="text-sm font-medium text-slate-300 flex items-center gap-2">
+                                    <Users className="w-4 h-4" />
+                                    Convocatoria
+                                </label>
+                                <span className={`text-xs font-bold px-2 py-1 rounded ${isPlayerCountValid ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                                    {totalSelected} / {requiredPlayers} Jugadores
+                                </span>
                             </div>
-                        </div>
-                    </div>
 
-                    <div>
-                        <label className="block text-sm font-medium text-gray-400 mb-2">Seleccionar Jugadores</label>
-                        <div className="bg-gray-950 border border-gray-800 rounded-lg p-2 max-h-60 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            {availablePlayers.map(player => {
-                                const isSelected = selectedPlayers.includes(player.uid);
-                                const hasDebt = debts[player.uid];
-
-                                return (
-                                    <div
-                                        key={player.uid}
-                                        onClick={() => togglePlayer(player.uid)}
-                                        className={`
-                                cursor-pointer p-2 rounded-lg border flex justify-between items-center transition-all
-                                ${isSelected
-                                                ? (hasDebt ? 'bg-red-500/10 border-red-500/50' : 'bg-green-500/10 border-green-500/50')
-                                                : 'bg-gray-900 border-gray-800 hover:border-gray-700'}
-                            `}
-                                    >
-                                        <div className="flex items-center gap-2 overflow-hidden">
-                                            <div className="w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center text-xs font-bold text-gray-400">
-                                                {player.displayName?.charAt(0) || '?'}
-                                            </div>
-                                            <div className="truncate">
-                                                <p className={`text-sm font-medium truncate ${isSelected ? 'text-white' : 'text-gray-300'}`}>
-                                                    {player.displayName}
-                                                </p>
-                                                <p className="text-xs text-gray-500 truncate">{player.email}</p>
-                                            </div>
-                                        </div>
-
-                                        {hasDebt && (
-                                            <div className="flex items-center text-red-500 text-xs font-bold" title="Deuda Pendiente">
-                                                <DollarSign className="w-4 h-4" />
-                                                <span>!</span>
-                                            </div>
-                                        )}
+                            {!showGuestInput ? (
+                                <button
+                                    type="button"
+                                    onClick={() => setShowGuestInput(true)}
+                                    className="w-full py-2 bg-slate-950 border border-slate-700 border-dashed rounded-lg text-slate-400 hover:text-white hover:border-slate-600 transition-colors flex items-center justify-center gap-2 text-sm"
+                                >
+                                    <UserPlus className="w-4 h-4" />
+                                    Nuevo Invitado
+                                </button>
+                            ) : (
+                                <div className="flex gap-2 mb-2 animate-in fade-in slide-in-from-top-1 duration-200">
+                                    <div className="relative flex-1">
+                                        <UserPlus className="absolute left-3 top-2.5 w-4 h-4 text-slate-500" />
+                                        <input
+                                            type="text"
+                                            placeholder="Nombre Invitado..."
+                                            className="w-full bg-slate-900 border border-slate-800 rounded-lg pl-9 pr-3 py-2 text-sm text-white focus:border-green-500 outline-none"
+                                            value={guestNameInput}
+                                            onChange={e => setGuestNameInput(e.target.value)}
+                                            onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleQuickGuest())}
+                                            disabled={isCreatingGuest}
+                                            autoFocus
+                                        />
                                     </div>
-                                );
-                            })}
+                                    <button
+                                        type="button"
+                                        onClick={handleQuickGuest}
+                                        disabled={!guestNameInput.trim() || isCreatingGuest}
+                                        className="px-4 py-2 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold rounded-lg transition-colors flex items-center gap-2"
+                                    >
+                                        {isCreatingGuest ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+                                        <span className="hidden sm:inline">Crear</span>
+                                        <span className="sm:hidden">Crear</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowGuestInput(false)}
+                                        className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-lg"
+                                        disabled={isCreatingGuest}
+                                    >
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                </div>
+                            )}
+
+                            {!selectedGroupId ? (
+                                <div className="bg-slate-900/50 border border-slate-800 border-dashed rounded-lg p-8 flex flex-col items-center justify-center text-slate-500">
+                                    <Shield className="w-8 h-8 mb-2 opacity-20" />
+                                    <p className="text-sm">Selecciona un grupo primero</p>
+                                </div>
+                            ) : isFetchingUsers ? (
+                                <div className="flex justify-center py-8">
+                                    <Loader2 className="w-6 h-6 animate-spin text-green-500" />
+                                </div>
+                            ) : availableUsers.length === 0 ? (
+                                <div className="bg-slate-900/50 border border-slate-800 border-dashed rounded-lg p-8 text-center text-slate-500 text-sm">
+                                    No se encontraron jugadores en este grupo.
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-60 overflow-y-auto p-1">
+                                    {/* Guests List */}
+                                    {guests.map(guest => (
+                                        <div
+                                            key={guest.id}
+                                            className="flex items-center justify-between p-3 rounded-lg border border-amber-500/30 bg-amber-500/5 select-none"
+                                        >
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold bg-amber-900/40 text-amber-500 border border-amber-500/20">
+                                                    IN
+                                                </div>
+                                                <div className="flex flex-col">
+                                                    <span className="text-sm font-medium text-amber-100">
+                                                        {guest.displayName}
+                                                    </span>
+                                                    <span className="text-[10px] text-amber-500 font-bold uppercase tracking-wider">
+                                                        Invitado
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => removeGuest(guest.id)}
+                                                className="text-gray-500 hover:text-red-400 p-1"
+                                            >
+                                                <X className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                    ))}
+
+                                    {/* Registered Users List */}
+                                    {availableUsers.map(user => {
+                                        const isSelected = selectedUserIds.includes(user.id);
+                                        const hasDebt = usersWithDebt.has(user.id);
+                                        const isGuestUser = user.role === 'guest' || user.id.startsWith('guest_');
+
+                                        return (
+                                            <div
+                                                key={user.id}
+                                                onClick={() => toggleUser(user.id)}
+                                                className={`
+                                                    flex items-center justify-between p-3 rounded-lg border cursor-pointer transition-all select-none
+                                                    ${isSelected
+                                                        ? 'bg-green-500/10 border-green-500/50'
+                                                        : 'bg-slate-950 border-slate-800 hover:border-slate-700'
+                                                    }
+                                                `}
+                                            >
+                                                <div className="flex items-center gap-3">
+                                                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${isSelected ? 'bg-green-500 text-black' : 'bg-slate-800 text-slate-400'}`}>
+                                                        {user.displayName ? user.displayName.slice(0, 2).toUpperCase() : "??"}
+                                                    </div>
+                                                    <div className="flex flex-col">
+                                                        <span className={`text-sm font-medium ${isSelected ? 'text-green-400' : 'text-slate-300'}`}>
+                                                            {user.displayName || "Usuario Desconocido"}
+                                                            {isGuestUser && <span className="ml-2 text-[10px] bg-amber-500/20 text-amber-500 px-1.5 py-0.5 rounded border border-amber-500/30">INVITADO</span>}
+                                                        </span>
+                                                        {hasDebt && (
+                                                            <span className="text-[10px] text-red-400 flex items-center gap-1">
+                                                                <AlertTriangle className="w-3 h-3" />
+                                                                Pago Pendiente
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                {hasDebt && (
+                                                    <div className="text-red-500" title="Usuario con pagos pendientes">
+                                                        <AlertTriangle className="w-4 h-4" />
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
                         </div>
-                        <p className="text-xs text-gray-500 mt-2">
-                            {selectedPlayers.length} seleccionados. <span className="text-red-500 italic">Los jugadores con icono de dólar ('$') tienen deudas y bloquean el partido.</span>
-                        </p>
                     </div>
 
-                    <div className="flex justify-end pt-4 border-t border-gray-800">
+                    <div className="p-6 border-t border-slate-800 bg-slate-900/50 flex justify-end gap-3 shrink-0">
                         <button
                             type="button"
                             onClick={onClose}
-                            className="px-4 py-2 text-gray-400 hover:text-white transition-colors mr-3"
+                            className="px-4 py-2 text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
                         >
                             Cancelar
                         </button>
                         <button
                             type="submit"
-                            disabled={loading || validating || Object.values(debts).some(d => d)}
-                            className="px-6 py-2 bg-gradient-to-r from-green-500 to-blue-600 text-white font-medium rounded-lg hover:shadow-lg hover:opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                            disabled={isLoading || !isPlayerCountValid || !selectedGroupId}
+                            className={`
+                px-6 py-2 text-sm font-bold text-white rounded-lg shadow-lg transition-all flex items-center gap-2
+                ${hasSelectedDebtors
+                                    ? 'bg-orange-500 hover:bg-orange-600 shadow-orange-500/20'
+                                    : 'bg-green-600 hover:bg-green-500 shadow-green-500/20'
+                                }
+                ${(isLoading || !isPlayerCountValid || !selectedGroupId) ? 'opacity-50 cursor-not-allowed' : ''}
+              `}
                         >
-                            {loading ? 'Creando...' : 'Programar Partido'}
+                            {isLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                            {!isPlayerCountValid
+                                ? `Faltan ${Math.abs(requiredPlayers - totalSelected)}`
+                                : hasSelectedDebtors ? 'Confirmar (con Deudas)' : 'Crear Partido'}
                         </button>
                     </div>
                 </form>

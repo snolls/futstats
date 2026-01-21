@@ -1,7 +1,7 @@
 'use client';
 
 import { useAuth } from '@/hooks/useAuth';
-import { BarChart3, List, ShieldCheck } from 'lucide-react';
+import { BarChart3, List, ShieldCheck, Calendar, Shield, Users } from "lucide-react";
 import clsx from 'clsx';
 
 interface DashboardNavProps {
@@ -14,14 +14,15 @@ export default function DashboardNav({ activeTab, onTabChange }: DashboardNavPro
     const isAdmin = role === 'admin' || role === 'superadmin';
 
     const tabs = [
+
         { id: 'stats', label: 'Estadísticas', icon: BarChart3 },
-        { id: 'matches', label: 'Mis Partidos', icon: List },
-        // Conditional Admin Tab
-        ...(isAdmin ? [{ id: 'admin', label: 'Gestión', icon: ShieldCheck }] : []),
-    ];
+        { id: 'matches', label: 'Mis Partidos', icon: Calendar },
+        { id: 'users', label: 'Usuarios', icon: Users, adminOnly: true },
+        { id: 'overview', label: 'Gestión', icon: Shield, adminOnly: true },
+    ].filter(tab => !tab.adminOnly || isAdmin); // Filter out admin-only tabs if not admin
 
     return (
-        <div className="flex items-center space-x-1 p-1 bg-gray-900/50 backdrop-blur-sm rounded-xl border border-gray-800 w-fit mx-auto mt-6 mb-8">
+        <div className="flex w-full overflow-x-auto md:justify-center gap-2 pb-2 no-scrollbar mask-linear items-center p-1 bg-gray-900/50 backdrop-blur-sm rounded-xl border border-gray-800">
             {tabs.map((tab) => {
                 const Icon = tab.icon;
                 const isActive = activeTab === tab.id;
@@ -31,7 +32,7 @@ export default function DashboardNav({ activeTab, onTabChange }: DashboardNavPro
                         key={tab.id}
                         onClick={() => onTabChange(tab.id)}
                         className={clsx(
-                            'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200',
+                            'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 whitespace-nowrap flex-shrink-0',
                             isActive
                                 ? 'bg-gradient-to-r from-green-500/20 to-blue-500/20 text-white shadow-lg border border-green-500/30'
                                 : 'text-gray-400 hover:text-white hover:bg-gray-800/50'

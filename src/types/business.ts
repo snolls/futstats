@@ -14,13 +14,15 @@ export type PaymentStatus = 'PAID' | 'PENDING';
 export interface MatchStats {
     id?: string;
     matchId: string;
-    playerId: string;
+    userId: string;
     groupId: string;
     goals: number;
     assists?: number; // Optional
     isMvp: boolean;
     paymentStatus: PaymentStatus;
     matchDate: Timestamp;
+    isGuest?: boolean;
+    displayName?: string;
 }
 
 export interface Match {
