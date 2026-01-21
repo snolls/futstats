@@ -223,7 +223,7 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
 
             // 4. Reset & Feedback
             setGuestNameInput("");
-            console.log("Guest created and selected:", name);
+
 
         } catch (error) {
             console.error("Error creating quick guest:", error);
@@ -317,7 +317,7 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
             });
 
             if (autoPaidCount > 0) {
-                console.log(`✅ Se ha cobrado automáticamente a ${autoPaidCount} jugadores usando su saldo a favor.`);
+
             }
 
             // Guests (Legacy ad-hoc support, usually empty now)

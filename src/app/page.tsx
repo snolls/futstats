@@ -249,49 +249,10 @@ export default function Home() {
   const refreshGroups = () => {
     // Snapshot listener handles refresh automatically, 
     // but if we used getDocs we would call fetchGroups here.
+    console.debug("Groups list refreshed via snapshot");
   };
 
-  const handleSanitizeGroups = async () => {
-    if (role !== 'superadmin') return;
-    const confirm = window.confirm("¿Ejecutar script de sanitización de grupos? Esto eliminará usuarios fantasma.");
-    if (!confirm) return;
 
-    try {
-      // 1. Fetch ALL Users
-      const usersSnap = await getDocs(collection(db, 'users'));
-      const existingUserIds = new Set(usersSnap.docs.map(d => d.id));
-
-      // 2. Fetch ALL Groups
-      const groupsSnap = await getDocs(collection(db, 'groups'));
-      let fixedCount = 0;
-
-      // 3. Iterate and Fix
-      for (const groupDoc of groupsSnap.docs) {
-        const groupData = groupDoc.data();
-        const currentMembers = groupData.memberIds || []; // Using memberIds as per user request/standard
-        // Note: Check legacy 'members' field if exists, but standardizing on memberIds/members based on usage. 
-        // Based on previous edits, we use 'members' in UserDetailModal/EditGroupModal.
-        // Let's check both or stick to 'members' as seen in other files.
-        // EditGroupModal uses 'members' array in Firestore (from my previous fix).
-        // The user request says "Filtrar su array memberIds". I'll try to support 'members' which is what I used in atomic fix.
-
-        const memberArray = groupData.members || [];
-        const validMembers = memberArray.filter((uid: string) => existingUserIds.has(uid));
-
-        if (validMembers.length !== memberArray.length) {
-          await updateDoc(doc(db, 'groups', groupDoc.id), {
-            members: validMembers
-          });
-          fixedCount++;
-        }
-      }
-
-      alert(`Limpieza completada. Se corrigieron ${fixedCount} grupos.`);
-    } catch (err) {
-      console.error("Error sanitizing groups:", err);
-      alert("Error al ejecutar el script.");
-    }
-  };
 
   if (loading || !user) {
     return (

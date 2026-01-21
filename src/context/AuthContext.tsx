@@ -35,7 +35,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 unsubscribeProfile = onSnapshot(userRef, (docSnap) => {
                     if (docSnap.exists()) {
                         const data = docSnap.data();
-                        console.log("Perfil actualizado en tiempo real:", data.role);
+
                         setUserData(data);
                     } else {
                         setUserData(null);
