@@ -14,7 +14,6 @@ import MatchCard from '@/components/MatchCard';
 import UserDirectory from '@/components/UserDirectory';
 import OnboardingModal from '@/components/OnboardingModal';
 import GroupFinderModal from '@/components/GroupFinderModal';
-import { DebugSeeder } from '@/components/DebugSeeder';
 import { Plus, Users, Settings, Shield, Contact, Search } from 'lucide-react';
 import { collection, query, orderBy, limit, onSnapshot, where, getDocs, updateDoc, doc, documentId } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -576,7 +575,6 @@ export default function Home() {
 
           {/* --- ONBOARDING OBLIGATORIO --- */}
           {showOnboarding && <OnboardingModal forceOpen={true} />}
-          <DebugSeeder />
         </div>
       </main>
     </div>
