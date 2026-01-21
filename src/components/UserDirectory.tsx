@@ -36,6 +36,7 @@ export default function UserDirectory({ currentUser }: UserDirectoryProps) {
     const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
     const [showDebtorsOnly, setShowDebtorsOnly] = useState(false);
     const [searchTerm, setSearchTerm] = useState("");
+    const [roleFilter, setRoleFilter] = useState<'all' | 'admin' | 'user' | 'superadmin'>('all'); // NEW
     const [groups, setGroups] = useState<GroupData[]>([]);
     const [selectedGroupId, setSelectedGroupId] = useState<string>("");
 
@@ -420,7 +421,10 @@ export default function UserDirectory({ currentUser }: UserDirectoryProps) {
 
     const filteredUsers = users.filter(u => {
         if (showDebtorsOnly && u.totalDebt <= 0) return false;
-        if (!showGuests && (u.role === 'guest' || u.isGuest)) return false; // Robust check
+        if (!showGuests && (u.role === 'guest' || u.isGuest)) return false;
+
+        // Role Filter
+        if (roleFilter !== 'all' && u.role !== roleFilter) return false;
 
         // Group Filter
         if (selectedGroupId) {
@@ -523,6 +527,18 @@ export default function UserDirectory({ currentUser }: UserDirectoryProps) {
 
                         <div className="h-8 w-px bg-gray-800 mx-1 hidden sm:block"></div>
 
+                        {/* Role Filter Dropdown */}
+                        <select
+                            value={roleFilter}
+                            onChange={(e) => setRoleFilter(e.target.value as any)}
+                            className="bg-gray-900 border border-gray-800 rounded-lg px-3 py-2 text-sm text-gray-300 focus:border-blue-500 outline-none"
+                        >
+                            <option value="all">Rol: Todos</option>
+                            <option value="admin">Solo Admins</option>
+                            <option value="user">Solo Jugadores</option>
+                            <option value="superadmin">Superadmins</option>
+                        </select>
+
                         {/* Filtros */}
                         <label className="flex items-center gap-2 cursor-pointer select-none bg-gray-900 border border-gray-800 px-3 py-2 rounded-lg hover:border-gray-700 transition-colors">
                             <input
@@ -578,6 +594,7 @@ export default function UserDirectory({ currentUser }: UserDirectoryProps) {
                             onOpenDetail={() => openUserDetail(u)}
                             onEdit={handleEditGuest}
                             onReviewRequest={handleReviewRequest}
+                            managedGroupNames={u.role === 'admin' ? groups.filter(g => g.adminIds?.includes(u.id)).map(g => g.name) : []}
                         />
                     ))}
                 </div>

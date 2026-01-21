@@ -27,6 +27,7 @@ interface UserCardProps {
     onOpenDetail: () => void;
     onEdit?: (user: UserData) => void;
     onReviewRequest?: (userId: string, action: 'approve' | 'reject') => void;
+    managedGroupNames?: string[];
 }
 
 /**
@@ -128,7 +129,7 @@ export function UserActions({ user, currentUser, onDelete, onRoleUpdate, onOpenD
     );
 }
 
-export default function UserCard({ user, currentUser, onDelete, onRoleUpdate, onOpenDetail, onEdit }: UserCardProps) {
+export default function UserCard({ user, currentUser, onDelete, onRoleUpdate, onOpenDetail, onEdit, managedGroupNames }: UserCardProps) {
     const roleColor = user.role === 'superadmin' ? 'text-purple-400 bg-purple-500/10 border-purple-500/20'
         : user.role === 'admin' ? 'text-blue-400 bg-blue-500/10 border-blue-500/20'
             : user.id.startsWith('guest_') || user.role === 'guest' ? 'text-amber-400 bg-amber-500/10 border-amber-500/20' // Estilo Invitado
@@ -231,6 +232,16 @@ export default function UserCard({ user, currentUser, onDelete, onRoleUpdate, on
                     </div>
                 )}
             </div>
+
+            {/* Admin Management Context */}
+            {user.role === 'admin' && managedGroupNames && managedGroupNames.length > 0 && (
+                <div className="mb-4 text-xs text-slate-500 bg-slate-900/50 border border-slate-800 rounded px-2 py-1 max-w-full">
+                    <span className="font-bold text-slate-400 block mb-0.5">Administra:</span>
+                    <div className="truncate" title={managedGroupNames.join(", ")}>
+                        {managedGroupNames.join(", ")}
+                    </div>
+                </div>
+            )}
 
             {/* Sección de Botones de Acción */}
             <div className="mt-auto w-full pt-3 border-t border-gray-900 flex justify-center" onClick={(e) => e.stopPropagation()}>

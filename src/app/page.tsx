@@ -15,7 +15,7 @@ import UserDirectory from '@/components/UserDirectory';
 import OnboardingModal from '@/components/OnboardingModal';
 import GroupFinderModal from '@/components/GroupFinderModal';
 import { Plus, Users, Settings, Shield, Contact, Search } from 'lucide-react';
-import { collection, query, orderBy, limit, onSnapshot, where, getDocs, updateDoc, doc, documentId } from 'firebase/firestore';
+import { collection, query, orderBy, limit, onSnapshot, where, getDocs, getDoc, updateDoc, doc, documentId } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { toast } from 'sonner';
 import ConfirmationModal from '@/components/ConfirmationModal';
@@ -33,6 +33,39 @@ interface GroupData {
 // Esta es la vista central de la aplicación.
 // Muestra estadísticas, partidos y paneles de gestión según el rol.
 // ----------------------------------------------------------------------
+// Helper to fetch and display admin name
+function AdminNameDisplay({ adminIds }: { adminIds?: string[] }) {
+  const [adminName, setAdminName] = useState<string>("Cargando...");
+
+  useEffect(() => {
+    if (!adminIds || adminIds.length === 0) {
+      setAdminName("Sin Admin");
+      return;
+    }
+    const adminId = adminIds[0]; // Show first admin
+    const fetchAdmin = async () => {
+      try {
+        const docSnap = await getDoc(doc(db, 'users', adminId));
+        if (docSnap.exists()) {
+          setAdminName(docSnap.data().displayName || "Usuario");
+        } else {
+          setAdminName("Desconocido");
+        }
+      } catch (e) {
+        setAdminName("Error");
+      }
+    };
+    fetchAdmin();
+  }, [adminIds]);
+
+  return (
+    <div className="flex items-center gap-1.5 text-xs text-amber-500 font-medium bg-amber-900/10 border border-amber-500/20 px-2 py-1 rounded w-fit mt-1">
+      <span>👑</span>
+      <span>{adminName}</span>
+    </div>
+  );
+}
+
 export default function Home() {
   const { user, loading, userData } = useAuthContext();
   const role = userData?.role;
@@ -525,7 +558,10 @@ export default function Home() {
                         <div className="flex justify-between items-start mb-4">
                           <div>
                             <h3 className="font-semibold text-white text-lg">{group.name}</h3>
-                            <p className="text-xs text-gray-500 mt-1">ID: {group.id.slice(0, 8)}...</p>
+                            <div className="flex flex-col gap-1 mt-1">
+                              <p className="text-xs text-gray-500">ID: {group.id.slice(0, 8)}...</p>
+                              {role === 'superadmin' && <AdminNameDisplay adminIds={group.adminIds} />}
+                            </div>
                           </div>
                           <div className="bg-gray-800 px-2 py-1 rounded text-xs text-gray-400 font-mono">
                             {group.members?.length || 0} Miembros

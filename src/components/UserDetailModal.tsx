@@ -1,7 +1,7 @@
 'use client';
 
-import { useRef, useState, useEffect } from 'react';
-import { X, Calendar, Wallet, CheckCircle2, AlertTriangle, Plus, Minus, Loader2, History, RotateCcw, Pencil, Save, Users, Shield } from 'lucide-react';
+import { useRef, useState, useEffect, useMemo } from 'react';
+import { X, Calendar, Wallet, CheckCircle2, AlertTriangle, Plus, Minus, Loader2, History, RotateCcw, Pencil, Save, Users, Shield, ArrowRight } from 'lucide-react';
 import { usePlayerDebts } from '@/hooks/usePlayerDebts';
 import { AppUserCustomData, PLAYER_POSITIONS } from '@/types/user';
 import { db } from '@/lib/firebase';
@@ -42,14 +42,57 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
     // --- 1. CONTEXTO ECONÓMICO ---
     const [selectedDebtContext, setSelectedDebtContext] = useState<string>("");
 
-    // Inicializar contexto: Si hay prop groupId, úsalo. Si no, usa el primer grupo asociado.
+    // Group Management State (Moved up for dependencies)
+    const [manageableGroups, setManageableGroups] = useState<{ id: string, name: string }[]>([]);
+    const [isFetchingGroups, setIsFetchingGroups] = useState(false);
+
+
+
+    // Safety Effect: If selected group is no longer associated (e.g. unchecked in UI), switch or clear.
     useEffect(() => {
-        if (groupId) {
-            setSelectedDebtContext(groupId);
-        } else if (liveUser.associatedGroups && liveUser.associatedGroups.length > 0) {
-            setSelectedDebtContext(liveUser.associatedGroups[0]);
+        if (!liveUser || !selectedDebtContext) return;
+
+        const isStillMember = liveUser.associatedGroups?.includes(selectedDebtContext);
+
+        if (!isStillMember) {
+            // Find intersection of associated groups and manageable groups
+            const validGroups = liveUser.associatedGroups?.filter(ag => manageableGroups.some(mg => mg.id === ag)) || [];
+
+            if (validGroups.length > 0) {
+                // Switch to first valid group
+                setSelectedDebtContext(validGroups[0]);
+                toast.info(`Cambio automático: Contexto cambiado a grupo válido.`);
+            } else {
+                setSelectedDebtContext(''); // Reset total si no tiene grupos válidos
+                toast.warning("El usuario ya no pertenece al grupo seleccionado.");
+            }
         }
-    }, [groupId, liveUser.associatedGroups]);
+    }, [liveUser.associatedGroups, selectedDebtContext, manageableGroups]);
+
+    // --- Group Management Logic --- //
+    const fetchManageableGroups = async () => {
+        if (!currentUser || isFetchingGroups || manageableGroups.length > 0) return;
+        setIsFetchingGroups(true);
+        try {
+            let q;
+            if (currentUserData?.role === 'superadmin') {
+                q = query(collection(db, "groups"));
+            } else {
+                q = query(collection(db, "groups"), where("adminIds", "array-contains", currentUser.uid));
+            }
+            const snap = await getDocs(q);
+            setManageableGroups(snap.docs.map(d => ({ id: d.id, name: d.data().name })));
+        } catch (err) {
+            console.error("Error fetching groups for detail modal", err);
+        } finally {
+            setIsFetchingGroups(false);
+        }
+    };
+
+    // Load groups when modal opens
+    if (isOpen && manageableGroups.length === 0 && !isFetchingGroups) {
+        fetchManageableGroups();
+    }
 
     const {
         pendingMatches,
@@ -63,16 +106,50 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
         processSmartPayment
     } = usePlayerDebts(liveUser?.id, selectedDebtContext || undefined);
 
+    // --- SMART AUTO-SELECTION LOGIC ---
+    useEffect(() => {
+        // Only run logic if NO context is currently selected
+        if (selectedDebtContext) return;
+
+        let targetGroup = '';
+
+        // 1. Priority: Pending Matches (Urgent)
+        if (pendingMatches.length > 0) {
+            const firstPending = pendingMatches.find(m => m.paymentStatus === 'PENDING');
+            if (firstPending && firstPending.groupId) {
+                targetGroup = firstPending.groupId;
+            }
+        }
+
+        // 2. Priority: Manual Debt
+        if (!targetGroup && liveUser?.debts) {
+            const debts = liveUser.debts || {};
+            // User owes money (Positive Value)
+            const groupWithDebt = Object.keys(debts).find(gid => debts[gid] > 0);
+            if (groupWithDebt) targetGroup = groupWithDebt;
+        }
+
+        // 3. Fallback: First Associated Group
+        if (!targetGroup && liveUser?.associatedGroups && liveUser.associatedGroups.length > 0) {
+            targetGroup = liveUser.associatedGroups[0];
+        }
+
+        // Apply Selection if found and valid
+        if (targetGroup) {
+            setSelectedDebtContext(targetGroup);
+        }
+
+    }, [pendingMatches, liveUser.debts, liveUser.associatedGroups, selectedDebtContext]);
+
+
+    // --- SMART AUTO-SELECTION LOGIC (Moved here) ---
+
     const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending');
     const [processingId, setProcessingId] = useState<string | null>(null);
     const [manualDebtInput, setManualDebtInput] = useState("");
     const [isEditingName, setIsEditingName] = useState(false);
     const [editNameValue, setEditNameValue] = useState("");
     const [isSavingName, setIsSavingName] = useState(false);
-
-    // Group Management State
-    const [manageableGroups, setManageableGroups] = useState<{ id: string, name: string }[]>([]);
-    const [isFetchingGroups, setIsFetchingGroups] = useState(false);
 
     // Estado para el diálogo de confirmación de pago inteligente
     const [showPaymentConfirm, setShowPaymentConfirm] = useState(false);
@@ -181,30 +258,41 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
 
 
 
-    // --- Group Management Logic --- //
-    const fetchManageableGroups = async () => {
-        if (!currentUser || isFetchingGroups || manageableGroups.length > 0) return;
-        setIsFetchingGroups(true);
-        try {
-            let q;
-            if (currentUserData?.role === 'superadmin') {
-                q = query(collection(db, "groups"));
-            } else {
-                q = query(collection(db, "groups"), where("adminIds", "array-contains", currentUser.uid));
-            }
-            const snap = await getDocs(q);
-            setManageableGroups(snap.docs.map(d => ({ id: d.id, name: d.data().name })));
-        } catch (err) {
-            console.error("Error fetching groups for detail modal", err);
-        } finally {
-            setIsFetchingGroups(false);
-        }
-    };
+    // --- Dropdown Options Logic (Fix for Reactivity) ---
+    const dropdownOptions = useMemo(() => {
+        // Obtenemos los grupos vivos o fallback vacío
+        const targetGroups = liveUser?.associatedGroups || [];
 
-    // Load groups when modal opens
-    if (isOpen && manageableGroups.length === 0 && !isFetchingGroups) {
-        fetchManageableGroups();
-    }
+        // Filtramos 'manageableGroups' (que ya están filtrados por lo que el admin puede ver)
+        // para incluir SOLO los que el usuario tiene asociados ACTUALMENTE.
+        // Esto asegura que si desmarco un grupo abajo, desaparece de arriba.
+        return manageableGroups.filter(mg => targetGroups.includes(mg.id));
+    }, [liveUser?.associatedGroups, manageableGroups]);
+
+    // --- UNIFIED DEBT CALCULATION ---
+    const groupFinancialStatus = useMemo(() => {
+        if (!selectedDebtContext) return null;
+
+        // 1. Deuda Manual (Base de datos usuario)
+        const manual = liveUser?.debts?.[selectedDebtContext] || 0;
+
+        // 2. Deuda de Partidos (Calculada al vuelo con pendingMatches ya filtrados por el hook o filtrados aca)
+        // El hook 'usePlayerDebts' devuelve pendingMatches FILTRADOS si le pasamos selectedDebtContext.
+        // Así que simplemente sumamos lo que tenemos.
+        const matchesDebtVal = pendingMatches.reduce((acc, m) => acc + (m.price || 0), 0);
+
+        // Total = Manual + Matches (Positive = Debt)
+        const total = manual + matchesDebtVal;
+
+        return { total, manual, matches: matchesDebtVal };
+    }, [selectedDebtContext, liveUser.debts, pendingMatches]);
+
+    // Calculate Final Displayed Total
+    // If context selected, use our specific calc. If global, use totalDebt from hook.
+    const displayedTotal = selectedDebtContext && groupFinancialStatus ? groupFinancialStatus.total : totalDebt;
+
+    // --- Group Management Logic --- //
+
 
     const toggleGroupAssociation = async (groupId: string, isAssociated: boolean) => {
         setProcessingId(`group-${groupId}`);
@@ -315,8 +403,8 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
 
     if (!isOpen) return null;
 
-    const isDebt = totalDebt > 0.01;
-    const isCredit = totalDebt < -0.01;
+    const isDebt = displayedTotal > 0.01;
+    const isCredit = displayedTotal < -0.01;
     const isClean = !isDebt && !isCredit;
 
     // Configuración de estilo según estado
@@ -653,13 +741,16 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
                         </div>
                         <div className="text-right">
                             <div className={`text-2xl font-black ${statusConfig.amountColor}`}>
-                                {isDebt ? '-' : isCredit ? '+' : ''}{Math.abs(totalDebt).toFixed(2)}€
+                                {isDebt ? '-' : isCredit ? '+' : ''}{Math.abs(displayedTotal).toFixed(2)}€
                             </div>
-                            <div className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">
+                            <div className="text-[10px] text-slate-500 uppercase font-bold tracking-wider flex items-center justify-end gap-1">
                                 {selectedDebtContext ? (
-                                    <>En Grupo: {manageableGroups.find(g => g.id === selectedDebtContext)?.name || 'Seleccionado'}</>
+                                    <>
+                                        <span className="opacity-50">En:</span>
+                                        <span className={statusConfig.amountColor}>{manageableGroups.find(g => g.id === selectedDebtContext)?.name || '...'}</span>
+                                    </>
                                 ) : (
-                                    <>Selecciona un grupo</>
+                                    <>Global</>
                                 )}
                             </div>
                         </div>
@@ -790,12 +881,13 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
                                     className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs focus:border-blue-500 outline-none mb-3"
                                 >
                                     <option value="" disabled>-- Selecciona Grupo --</option>
-                                    {/* Mostrar grupos asociados del usuario */}
-                                    {user.associatedGroups?.filter(ag => manageableGroups.some(mg => mg.id === ag)).map(ag => {
-                                        const gName = manageableGroups.find(g => g.id === ag)?.name || ag;
-                                        return <option key={ag} value={ag}>{gName}</option>;
-                                    })}
-                                    {/* Fallback for groups in debts but not associated? */}
+                                    {/* Reactive Dropdown Options */}
+                                    {dropdownOptions.map(group => (
+                                        <option key={group.id} value={group.id}>
+                                            {group.name}
+                                        </option>
+                                    ))}
+                                    {/* Fallback for groups in debts but not associated? Removed for strictness. */}
                                 </select>
                             </div>
 
