@@ -570,6 +570,7 @@ export default function Home() {
             type={confirmModal.type}
           />
 
+
           {/* --- ONBOARDING OBLIGATORIO --- */}
           {showOnboarding && <OnboardingModal forceOpen={true} />}
         </div>

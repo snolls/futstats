@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, query, where, onSnapshot, doc, updateDoc, getDoc, increment } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, getDoc, increment, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { AppUserCustomData } from '@/types/user';
 
@@ -39,13 +39,12 @@ export function usePlayerDebts(userId: string, groupId?: string): UsePlayerDebts
                 const data = snap.data() as AppUserCustomData;
                 if (groupId) {
                     // Scoped: Get debt for this group
-                    setManualDebt(data.groupDebts?.[groupId] || 0);
+                    // Using 'debts' first, fallback to 'groupDebts' for legacy
+                    setManualDebt(data.debts?.[groupId] || data.groupDebts?.[groupId] || 0);
                 } else {
-                    // Global (Superadmin view?): Sum all debts or show 0?
-                    // User prompt implies strict separation. If no groupId, maybe return 0 or global aggregation?
-                    // For safety, defaulting to 0 or aggregation if required.
-                    // Let's aggregate for logic consistency if needed, strictly summing Record values.
-                    const allDebts = Object.values(data.groupDebts || {}).reduce((a, b) => a + b, 0);
+                    // Global aggregation
+                    const debtMap = data.debts || data.groupDebts || {};
+                    const allDebts = Object.values(debtMap).reduce((a, b) => a + b, 0);
                     setManualDebt(allDebts);
                 }
             }
@@ -125,15 +124,7 @@ export function usePlayerDebts(userId: string, groupId?: string): UsePlayerDebts
     }, [userId, groupId]);
 
     // Calculations
-    // Matches Debt: Sum of pending match prices
     const matchesDebt = pendingMatches.reduce((acc, m) => acc + m.price, 0);
-
-    // Total Debt:
-    // If we rely on `groupDebts` (manualDebt) keeping track of adjustments independently of matches (hybrid system),
-    // we sum them.
-    // However, usually 'groupDebts' might eventually track EVERYTHING if we sync matches to it.
-    // But currently, the system seems to be: Match Debt is dynamic (calc'd from matches), Manual Debt is stored in user.
-    // So Total = Matches + Manual.
     const totalDebt = matchesDebt + manualDebt;
 
     const toggleMatchPayment = async (statId: string, currentStatus: 'PENDING' | 'PAID') => {
@@ -154,9 +145,13 @@ export function usePlayerDebts(userId: string, groupId?: string): UsePlayerDebts
             return;
         }
         try {
-            await updateDoc(doc(db, 'users', userId), {
-                [`groupDebts.${groupId}`]: increment(amount)
-            });
+            // Using setDoc with merge: true to avoid errors if 'debts' map doesn't exist
+            // and using the new 'debts' field per instructions.
+            await setDoc(doc(db, 'users', userId), {
+                debts: {
+                    [groupId]: increment(amount)
+                }
+            }, { merge: true });
         } catch (error) {
             console.error("Error updating manual debt:", error);
             throw error;
