@@ -7,7 +7,10 @@ import {
     deleteDoc,
     getDoc,
     writeBatch,
-    arrayUnion
+    arrayUnion,
+    query,
+    where,
+    getDocs
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { SocialRequest, RequestType } from "@/types/request";
@@ -18,6 +21,34 @@ export const RequestService = {
      * Creates a request to join a group.
      */
     async createJoinRequest(user: AppUserCustomData & { id: string }, group: { id: string, name: string, adminIds: string[] }) {
+        // 1. Check if request already exists
+        const q = query(
+            collection(db, "requests"),
+            where("userId", "==", user.id),
+            where("targetGroupId", "==", group.id),
+            where("type", "==", "join_group")
+        );
+        const snapshot = await getDocs(q);
+
+        if (!snapshot.empty) {
+            const existingReq = snapshot.docs[0];
+            const data = existingReq.data() as SocialRequest;
+
+            if (data.status === 'pending') {
+                throw new Error("Ya tienes una solicitud pendiente para este grupo.");
+            }
+
+            if (data.status === 'rejected') {
+                // Recycle: Set status to pending and update timestamp
+                await updateDoc(doc(db, "requests", existingReq.id), {
+                    status: 'pending',
+                    createdAt: serverTimestamp() as any
+                });
+                return; // Done
+            }
+        }
+
+        // 2. Create new if not exists
         const reqData: SocialRequest = {
             type: 'join_group',
             status: 'pending',
@@ -37,6 +68,31 @@ export const RequestService = {
      * Creates a request to become an Admin (Organizer).
      */
     async createAdminRoleRequest(user: AppUserCustomData & { id: string }) {
+        // 1. Check exists
+        const q = query(
+            collection(db, "requests"),
+            where("userId", "==", user.id),
+            where("type", "==", "request_admin")
+        );
+        const snapshot = await getDocs(q);
+
+        if (!snapshot.empty) {
+            const existingReq = snapshot.docs[0];
+            const data = existingReq.data() as SocialRequest;
+
+            if (data.status === 'pending') {
+                throw new Error("Ya tienes una solicitud de rol pendiente.");
+            }
+
+            if (data.status === 'rejected') {
+                await updateDoc(doc(db, "requests", existingReq.id), {
+                    status: 'pending',
+                    createdAt: serverTimestamp() as any
+                });
+                return;
+            }
+        }
+
         const reqData: SocialRequest = {
             type: 'request_admin',
             status: 'pending',
@@ -95,6 +151,9 @@ export const RequestService = {
      */
     async rejectRequest(request: SocialRequest) {
         if (!request.id) return;
-        await deleteDoc(doc(db, "requests", request.id));
+        // Soft delete so it can be recycled
+        await updateDoc(doc(db, "requests", request.id), {
+            status: 'rejected'
+        });
     }
 };

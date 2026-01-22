@@ -25,7 +25,7 @@ const NotificationsContext = createContext<NotificationsContextType>({
 });
 
 export function NotificationsProvider({ children }: { children: React.ReactNode }) {
-    const { user, role, loading: authLoading } = useAuth();
+    const { user, userData, role, loading: authLoading } = useAuth();
     const [notifications, setNotifications] = useState<NotificationRequest[]>([]);
     const [loading, setLoading] = useState(true);
 
@@ -37,49 +37,48 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
             return;
         }
 
-        // Logic refinement: 
-        // 1. User sees requests where 'auditors' contains their UID (Group Admins).
-        // 2. Superadmin sees requests where 'auditors' contains 'superadmin' OR their UID.
+        // Broad Query: Listen to ALL pending requests
+        // Client-side filtering is used to ensure robustness if 'auditors' field is missing or inconsistent.
+        const q = query(
+            collection(db, "requests"),
+            where("status", "==", "pending")
+        );
 
-        const unsubs: (() => void)[] = [];
-        const resultsMap = new Map<string, NotificationRequest[]>();
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const allPending = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            } as NotificationRequest));
 
-        const updateNotifications = (key: string, list: NotificationRequest[]) => {
-            resultsMap.set(key, list);
-            const merged = Array.from(resultsMap.values()).flat();
-            // Dedup by ID
-            const unique = Array.from(new Map(merged.map(item => [item.id, item])).values());
+            const myNotifications = allPending.filter(req => {
+                // 1. Superadmin: Sees 'request_admin' (or legacy 'admin_access')
+                if (role === 'superadmin') {
+                    if (req.type === 'request_admin' || req.type === 'admin_access') return true;
+                }
+
+                // 2. Group Admin: Sees 'join_group' for their groups
+                if (req.type === 'join_group' && req.targetGroupId) {
+                    const myGroups = userData?.associatedGroups || [];
+                    if (myGroups.includes(req.targetGroupId)) {
+                        return true;
+                    }
+                }
+
+                return false;
+            });
+
             // Sort desc by createdAt
-            unique.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+            myNotifications.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
 
-            setNotifications(unique);
+            setNotifications(myNotifications);
             setLoading(false);
-        };
-
-        // Listener A: My UID (Group Admin requests)
-        const q1 = query(collection(db, "requests"), where("auditors", "array-contains", user.uid));
-        unsubs.push(onSnapshot(q1, (snap) => {
-            const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as NotificationRequest));
-            updateNotifications('uid', list);
         }, (error) => {
-            console.error("Error listening to UID notifications:", error);
+            console.error("Error listening to notifications:", error);
             setLoading(false);
-        }));
+        });
 
-        // Listener B: 'superadmin' (Role requests) - Only if I am superadmin
-        if (role === 'superadmin') {
-            const q2 = query(collection(db, "requests"), where("auditors", "array-contains", "superadmin"));
-            unsubs.push(onSnapshot(q2, (snap) => {
-                const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as NotificationRequest));
-                updateNotifications('sa', list);
-            }, (error) => {
-                console.error("Error listening to Superadmin notifications:", error);
-                setLoading(false);
-            }));
-        }
-
-        return () => unsubs.forEach(u => u());
-    }, [user, role, authLoading]);
+        return () => unsubscribe();
+    }, [user, userData, role, authLoading]);
 
     return (
         <NotificationsContext.Provider value={{
