@@ -138,6 +138,9 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
     // Derived allowed IDs for iteration
     const allowedGroupIds = useMemo(() => visibleGroups.map(g => g.id), [visibleGroups]);
 
+    // Ref for Smart Selection Initialization
+    const isInitialized = useRef(false);
+
     // --- UNIFIED DEBT CALCULATION ---
     // Calculates the unified balance for ANY group (or global if null)
     // Returns: { total, manual, matches }
@@ -181,8 +184,10 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
 
     // --- SMART AUTO-SELECTION LOGIC ---
     useEffect(() => {
-        // Only run logic if NO context is currently selected
-        if (selectedDebtContext) return;
+        // Only run logic if NO context is currently selected AND not initialized
+        if (selectedDebtContext || isInitialized.current) return;
+
+        isInitialized.current = true;
 
         let targetGroup = '';
 
@@ -787,8 +792,18 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
                     {/* Ficha de Estado Dinámica */}
                     {/* CÁLCULO EN TIEMPO REAL PARA EL BANNER */}
                     {(() => {
-                        // Llamamos a la función con null para obtener la suma FILTRADA de grupos visibles
-                        const { total } = calculateGroupBalance(null);
+                        // LÓGICA DE CONTEXTO:
+                        // Si hay un grupo seleccionado en el dropdown, usamos ese ID.
+                        // Si no (estamos viendo vista general), pasamos null para calcular el global.
+                        const targetGroupId = selectedDebtContext || null;
+
+                        // Calculamos el balance
+                        const { total } = calculateGroupBalance(targetGroupId);
+
+                        // Obtenemos el nombre del grupo para mostrarlo en el texto
+                        const targetGroupName = targetGroupId
+                            ? visibleGroups.find(g => g.id === targetGroupId)?.name || 'Grupo'
+                            : 'Tus Grupos Gestionados';
 
                         const isDebt = total > 0.01;
                         const isCredit = total < -0.01;
@@ -810,7 +825,7 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
                                             {isDebt ? 'Pagos Pendientes' : isCredit ? 'Saldo a Favor' : 'Todo en orden'}
                                         </h3>
                                         <p className="text-sm opacity-80">
-                                            {isDebt ? 'Tiene pagos o multas pendientes en TUS grupos.' : isCredit ? 'El usuario tiene crédito disponible.' : 'Sin deudas activas en tus grupos.'}
+                                            {isDebt ? 'Tiene pagos o multas pendientes en este contexto.' : isCredit ? 'El usuario tiene crédito disponible.' : 'Sin deudas activas.'}
                                         </p>
                                     </div>
                                 </div>
@@ -821,7 +836,7 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
                                         {isDebt ? '-' : isCredit ? '+' : ''}{Math.abs(total).toFixed(2)}€
                                     </span>
                                     <span className="text-xs font-mono opacity-70 uppercase tracking-widest">
-                                        En tus grupos
+                                        {targetGroupId ? `EN: ${targetGroupName}` : 'TOTAL GESTIONADO'}
                                     </span>
                                 </div>
                             </div>
@@ -921,15 +936,23 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
                                 <Wallet className="w-4 h-4 text-amber-400" />
                                 Ajustes Manuales / Multas
                             </h4>
-                            {groupFinancialStatus.manual < 0 ? (
-                                <span className="text-xs font-bold px-2 py-1 rounded border bg-emerald-500/10 border-emerald-500/20 text-emerald-400">
-                                    Saldo disponible: {Math.abs(groupFinancialStatus.manual).toFixed(2)}€
-                                </span>
-                            ) : (
-                                <span className={`text-xs font-bold px-2 py-1 rounded border ${groupFinancialStatus.manual > 0 ? 'bg-slate-800 border-slate-700 text-white' : 'border-transparent text-slate-600'}`}>
-                                    Saldo: {groupFinancialStatus.manual > 0 ? '-' : ''}{Math.abs(groupFinancialStatus.manual).toFixed(2)}€
-                                </span>
-                            )}
+
+                            {selectedDebtContext && (() => {
+                                // Usamos el cálculo directo para asegurar sincronización con el dropdown
+                                const { total } = calculateGroupBalance(selectedDebtContext);
+                                const isPositive = total > 0.01;
+                                const isNegative = total < -0.01;
+
+                                return (
+                                    <span className={`text-xs font-bold px-2 py-1 rounded border ${isNegative ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' :
+                                        isPositive ? 'bg-slate-800 border-slate-700 text-white' :
+                                            'border-transparent text-slate-600'
+                                        }`}>
+                                        {isNegative ? 'Saldo disponible: ' : 'Saldo: '}
+                                        {isPositive ? '-' : ''}{Math.abs(total).toFixed(2)}€
+                                    </span>
+                                );
+                            })()}
                         </div>
 
                         <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-4">
@@ -950,16 +973,22 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
                                 <select
                                     value={selectedDebtContext}
                                     onChange={(e) => setSelectedDebtContext(e.target.value)}
-                                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white text-xs focus:border-blue-500 outline-none mb-3"
+                                    className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none transition-all mb-3"
                                 >
-                                    <option value="" disabled>-- Selecciona Grupo --</option>
-                                    {/* Reactive Dropdown Options */}
-                                    {dropdownOptions.map(group => (
+                                    <option value="" disabled>-- Selecciona un Grupo --</option>
+
+                                    {visibleGroups.map(group => (
                                         <option key={group.id} value={group.id}>
-                                            {group.name}
+                                            {group.name} {currentUserData?.role === 'superadmin' && `(ID: ${group.id.slice(0, 4)})`}
                                         </option>
                                     ))}
-                                    {/* Fallback for groups in debts but not associated? Removed for strictness. */}
+
+                                    {/* FALLBACK VISUAL: Si tengo seleccionado un grupo que por error no está en visibleGroups, muéstralo igual para no romper la UI */}
+                                    {selectedDebtContext && !visibleGroups.find(g => g.id === selectedDebtContext) && (
+                                        <option value={selectedDebtContext} disabled>
+                                            Grupo Desconocido/Oculto ({selectedDebtContext})
+                                        </option>
+                                    )}
                                 </select>
                             </div>
 
@@ -1087,6 +1116,6 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
                     </div>
                 )}
             </div>
-        </div>
+        </div >
     );
 }

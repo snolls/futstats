@@ -473,111 +473,104 @@ export default function UserDirectory({ currentUser }: UserDirectoryProps) {
                 type={confirmationState.type}
             />
 
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                <div>
-                    <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                        Directorio de Jugadores
+            <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-6">
+
+                {/* IZQUIERDA: Título y Selector de Grupo Principal */}
+                <div className="flex items-center gap-4 w-full md:w-auto">
+                    <h2 className="text-xl font-bold text-white flex items-center gap-2 shrink-0">
+                        Directorio
                         <span className="text-xs font-normal text-gray-500 bg-gray-800 px-2 py-0.5 rounded-full">
-                            Total: {users.length}
+                            {users.length}
                         </span>
                     </h2>
 
-                    {/* Group Selector */}
                     {groups.length > 0 && (
                         <select
                             value={selectedGroupId}
                             onChange={(e) => setSelectedGroupId(e.target.value)}
-                            className="mt-2 bg-gray-900 border border-gray-800 rounded-lg px-3 py-1.5 text-sm text-gray-300 focus:border-blue-500 outline-none w-full sm:w-auto"
+                            className="h-10 bg-gray-900 border border-gray-800 rounded-lg px-3 py-2 text-sm text-gray-300 focus:border-blue-500 outline-none w-full md:w-auto"
                         >
-                            <option value="">Todos mis grupos</option>
+                            <option value="">Todos los grupos</option>
                             {groups.map(g => (
                                 <option key={g.id} value={g.id}>{g.name}</option>
                             ))}
                         </select>
                     )}
-
-                    <p className="text-sm text-gray-400 mt-1">
-                        {users.length} usuarios encontrados
-                        {showDebtorsOnly && <span className="text-amber-500 font-bold ml-1">({filteredUsers.length} con deuda)</span>}
-                    </p>
                 </div>
 
-                <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-                    {/* Search Input */}
-                    <div className="relative w-full sm:w-64">
-                        <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-500" />
+                {/* DERECHA: Barra de Herramientas Unificada */}
+                <div className="flex flex-wrap items-center gap-3 w-full md:w-auto justify-end">
+
+                    {/* Buscador */}
+                    <div className="relative group w-full sm:w-64 h-10">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
                         <input
                             type="text"
+                            className="w-full h-full pl-10 pr-4 bg-gray-900 border border-gray-800 rounded-lg text-sm text-white focus:border-blue-500 outline-none transition-all"
                             placeholder="Buscar jugador..."
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full bg-gray-900 border border-gray-800 rounded-lg pl-9 pr-4 py-2 text-sm text-white focus:border-blue-500 outline-none transition-colors"
                         />
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-3">
-                        {/* Botón Nuevo Invitado */}
+                    {/* Botón Acción */}
+                    <button
+                        onClick={() => setIsGuestModalOpen(true)}
+                        className="h-10 px-4 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-medium flex items-center gap-2 transition-colors shadow-lg shadow-purple-900/20"
+                    >
+                        <UserPlus className="w-4 h-4" />
+                        <span className="hidden sm:inline">Nuevo Invitado</span>
+                    </button>
+
+                    <div className="h-8 w-px bg-gray-800 mx-1 hidden sm:block"></div>
+
+                    {/* Filtros Extra */}
+                    <select
+                        value={roleFilter}
+                        onChange={(e) => setRoleFilter(e.target.value as any)}
+                        className="h-10 px-3 bg-gray-900 border border-gray-800 rounded-lg text-sm text-gray-300 focus:border-blue-500 outline-none"
+                    >
+                        <option value="all">Rol: Todos</option>
+                        <option value="admin">Admins</option>
+                        <option value="user">Jugadores</option>
+                        <option value="superadmin">Superadmin</option>
+                    </select>
+
+                    {/* Checkboxes con estilo */}
+                    <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer bg-gray-900 border border-gray-800 px-3 h-10 rounded-lg hover:border-gray-700 transition-all select-none" title="Solo Deudores">
+                        <input
+                            type="checkbox"
+                            checked={showDebtorsOnly}
+                            onChange={(e) => setShowDebtorsOnly(e.target.checked)}
+                            className="w-4 h-4 rounded border-gray-600 text-green-500 focus:ring-green-500/20 bg-gray-800"
+                        />
+                        <span className={clsx("hidden sm:inline", showDebtorsOnly && "text-white")}>Deuda</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer bg-gray-900 border border-gray-800 px-3 h-10 rounded-lg hover:border-gray-700 transition-all select-none" title="Mostrar/Ocultar Invitados">
+                        <input
+                            type="checkbox"
+                            checked={showGuests}
+                            onChange={e => setShowGuests(e.target.checked)}
+                            className="w-4 h-4 rounded border-gray-600 text-purple-500 focus:ring-purple-500/20 bg-gray-800"
+                        />
+                        <span className={clsx("hidden sm:inline", showGuests && "text-purple-400")}>Invitados</span>
+                    </label>
+
+                    {/* Toggle Vista */}
+                    <div className="flex bg-gray-900 border border-gray-800 rounded-lg p-1 h-10 items-center">
                         <button
-                            onClick={() => setIsGuestModalOpen(true)}
-                            className="flex items-center gap-2 bg-purple-600 hover:bg-purple-500 text-white px-3 py-2 rounded-lg text-sm font-bold transition-all shadow-lg shadow-purple-900/20"
+                            onClick={() => setViewMode("grid")}
+                            className={clsx("p-1.5 rounded-md transition-colors h-full flex items-center", viewMode === "grid" ? "bg-gray-800 text-white" : "text-gray-500 hover:text-gray-300")}
                         >
-                            <UserPlus className="w-4 h-4" />
-                            <span className="hidden sm:inline">Nuevo Invitado</span>
+                            <LayoutGrid className="w-4 h-4" />
                         </button>
-
-                        <div className="h-8 w-px bg-gray-800 mx-1 hidden sm:block"></div>
-
-                        {/* Role Filter Dropdown */}
-                        <select
-                            value={roleFilter}
-                            onChange={(e) => setRoleFilter(e.target.value as any)}
-                            className="bg-gray-900 border border-gray-800 rounded-lg px-3 py-2 text-sm text-gray-300 focus:border-blue-500 outline-none"
+                        <button
+                            onClick={() => setViewMode("list")}
+                            className={clsx("p-1.5 rounded-md transition-colors h-full flex items-center", viewMode === "list" ? "bg-gray-800 text-white" : "text-gray-500 hover:text-gray-300")}
                         >
-                            <option value="all">Rol: Todos</option>
-                            <option value="admin">Solo Admins</option>
-                            <option value="user">Solo Jugadores</option>
-                            <option value="superadmin">Superadmins</option>
-                        </select>
-
-                        {/* Filtros */}
-                        <label className="flex items-center gap-2 cursor-pointer select-none bg-gray-900 border border-gray-800 px-3 py-2 rounded-lg hover:border-gray-700 transition-colors">
-                            <input
-                                type="checkbox"
-                                checked={showDebtorsOnly}
-                                onChange={(e) => setShowDebtorsOnly(e.target.checked)}
-                                className="w-4 h-4 rounded border-gray-600 text-green-500 focus:ring-green-500/20 bg-gray-800"
-                            />
-                            <span className={clsx("text-sm font-medium", showDebtorsOnly ? "text-white" : "text-gray-400")}>
-                                Solo Deudores
-                            </span>
-                        </label>
-
-                        <label className="flex items-center gap-2 cursor-pointer select-none bg-gray-900 border border-gray-800 px-3 py-2 rounded-lg hover:border-gray-700 transition-colors" title="Mostrar/Ocultar Invitados">
-                            <input
-                                type="checkbox"
-                                checked={showGuests}
-                                onChange={e => setShowGuests(e.target.checked)}
-                                className="w-4 h-4 rounded border-gray-600 text-purple-500 focus:ring-purple-500/20 bg-gray-800"
-                            />
-                            <span className={clsx("text-sm font-medium", showGuests ? "text-purple-400" : "text-gray-500")}>
-                                Invitados
-                            </span>
-                        </label>
-
-                        <div className="flex bg-gray-900 border border-gray-800 rounded-lg p-1">
-                            <button
-                                onClick={() => setViewMode("grid")}
-                                className={clsx("p-2 rounded-md transition-colors", viewMode === "grid" ? "bg-gray-800 text-white" : "text-gray-500 hover:text-gray-300")}
-                            >
-                                <LayoutGrid className="w-5 h-5" />
-                            </button>
-                            <button
-                                onClick={() => setViewMode("list")}
-                                className={clsx("p-2 rounded-md transition-colors", viewMode === "list" ? "bg-gray-800 text-white" : "text-gray-500 hover:text-gray-300")}
-                            >
-                                <ListIcon className="w-5 h-5" />
-                            </button>
-                        </div>
+                            <ListIcon className="w-4 h-4" />
+                        </button>
                     </div>
                 </div>
             </div>
