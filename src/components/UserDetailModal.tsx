@@ -785,36 +785,48 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
 
 
                     {/* Ficha de Estado Dinámica */}
-                    <div className={`p-4 rounded-xl border flex items-center justify-between mb-6 ${statusConfig.bg} ${statusConfig.border}`}>
-                        <div className="flex items-center gap-3">
-                            <div className={`p-2 rounded-full ${statusConfig.iconBg} ${statusConfig.iconColor}`}>
-                                <statusConfig.icon className="w-6 h-6" />
+                    {/* CÁLCULO EN TIEMPO REAL PARA EL BANNER */}
+                    {(() => {
+                        // Llamamos a la función con null para obtener la suma FILTRADA de grupos visibles
+                        const { total } = calculateGroupBalance(null);
+
+                        const isDebt = total > 0.01;
+                        const isCredit = total < -0.01;
+
+                        // Lógica de colores (Positivo = Deuda = Rojo)
+                        const bannerColor = isDebt ? 'bg-red-500/10 text-red-400 border-red-500/20'
+                            : isCredit ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20';
+
+                        return (
+                            <div className={`rounded-xl border p-4 mb-6 flex items-center justify-between ${bannerColor}`}>
+                                <div className="flex items-center gap-4">
+                                    {/* Icono y Texto */}
+                                    <div className={`p-3 rounded-full ${isDebt ? 'bg-red-500/20' : 'bg-emerald-500/20'}`}>
+                                        {isDebt ? <AlertTriangle className="w-6 h-6" /> : isCredit ? <Wallet className="w-6 h-6" /> : <CheckCircle2 className="w-6 h-6" />}
+                                    </div>
+                                    <div>
+                                        <h3 className="font-bold text-lg">
+                                            {isDebt ? 'Pagos Pendientes' : isCredit ? 'Saldo a Favor' : 'Todo en orden'}
+                                        </h3>
+                                        <p className="text-sm opacity-80">
+                                            {isDebt ? 'Tiene pagos o multas pendientes en TUS grupos.' : isCredit ? 'El usuario tiene crédito disponible.' : 'Sin deudas activas en tus grupos.'}
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* PRECIO GIGANTE */}
+                                <div className="text-right">
+                                    <span className="text-3xl font-black tracking-tight block">
+                                        {isDebt ? '-' : isCredit ? '+' : ''}{Math.abs(total).toFixed(2)}€
+                                    </span>
+                                    <span className="text-xs font-mono opacity-70 uppercase tracking-widest">
+                                        En tus grupos
+                                    </span>
+                                </div>
                             </div>
-                            <div>
-                                <h4 className={`font-bold ${statusConfig.titleColor}`}>
-                                    {statusConfig.title}
-                                </h4>
-                                <p className="text-xs text-slate-400">
-                                    {statusConfig.desc}
-                                </p>
-                            </div>
-                        </div>
-                        <div className="text-right">
-                            <div className={`text-2xl font-black ${statusConfig.amountColor}`}>
-                                {isDebt ? '-' : isCredit ? '+' : ''}{Math.abs(displayedTotal).toFixed(2)}€
-                            </div>
-                            <div className="text-[10px] text-slate-500 uppercase font-bold tracking-wider flex items-center justify-end gap-1">
-                                {selectedDebtContext ? (
-                                    <>
-                                        <span className="opacity-50">En:</span>
-                                        <span className={statusConfig.amountColor}>{manageableGroups.find(g => g.id === selectedDebtContext)?.name || '...'}</span>
-                                    </>
-                                ) : (
-                                    <>Global</>
-                                )}
-                            </div>
-                        </div>
-                    </div>
+                        );
+                    })()}
 
                     {/* Sección de Partidos con Pestañas */}
                     <div className="space-y-4">
