@@ -1,31 +1,21 @@
-'use client';
-
-// ----------------------------------------------------------------------
-// COMPONENTE NAVBAR
-// Esta barra se mantiene fija o visible en todas las páginas.
-// Gestiona la identidad del usuario y la navegación principal.
-// ----------------------------------------------------------------------
-
 import Link from 'next/link';
 import Image from 'next/image';
 // Hook personalizado para detectar el estado de autenticación (si el usuario está logueado)
 import { useAuth } from '@/hooks/useAuth';
 // Librerías externas: Iconos y Hooks de React
-import { LogOut, User as UserIcon, Shield, Crown } from 'lucide-react';
+import { LogOut, User as UserIcon, Shield, Crown, Settings } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 // Firebase Authentication
 import { signOut } from 'firebase/auth';
 import { auth } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
 import NotificationsDropdown from './NotificationsDropdown';
-import ConfirmationModal from '@/components/ConfirmationModal';
 import { toast } from 'sonner';
 
 export default function Navbar() {
     // Detectamos si hay un usuario conectado
     const { user, role } = useAuth();
     const [dropdownOpen, setDropdownOpen] = useState(false);
-    const [isRequestAdminOpen, setIsRequestAdminOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
     const router = useRouter();
 
@@ -35,18 +25,6 @@ export default function Navbar() {
             router.push('/login');
         } catch (error) {
             console.error('Error signing out:', error);
-        }
-    };
-
-    const handleRequestAdmin = async () => {
-        if (!user) return;
-        const { RequestService } = await import('@/services/RequestService');
-        try {
-            await RequestService.createAdminRoleRequest({ id: user.uid, displayName: user.displayName, email: user.email, photoURL: user.photoURL } as any);
-            toast.success("Solicitud enviada al Superadmin.");
-        } catch (e) {
-            console.error(e);
-            toast.error("Error al enviar solicitud.");
         }
     };
 
@@ -142,22 +120,17 @@ export default function Navbar() {
                                             </div>
                                         </div>
 
-                                        <a href="#" className="flex items-center px-4 py-2 text-sm text-gray-300 hover:bg-gray-800 hover:text-white transition-colors">
-                                            <UserIcon className="w-4 h-4 mr-2" />
-                                            Perfil
-                                        </a>
-                                        {role === 'user' && (
-                                            <button
-                                                onClick={() => {
-                                                    setDropdownOpen(false);
-                                                    setIsRequestAdminOpen(true);
-                                                }}
-                                                className="w-full flex items-center px-4 py-2 text-sm text-purple-400 hover:bg-purple-500/10 hover:text-purple-300 transition-colors"
-                                            >
-                                                <Shield className="w-4 h-4 mr-2" />
-                                                Ser Organizador
-                                            </button>
-                                        )}
+                                        <button
+                                            onClick={() => {
+                                                setDropdownOpen(false);
+                                                router.push('/profile');
+                                            }}
+                                            className="w-full flex items-center px-4 py-2 text-sm text-gray-300 hover:bg-gray-800 hover:text-white transition-colors"
+                                        >
+                                            <Settings className="w-4 h-4 mr-2" />
+                                            Editar Perfil
+                                        </button>
+
                                         <button
                                             onClick={handleLogout}
                                             className="w-full flex items-center px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors"
@@ -172,16 +145,6 @@ export default function Navbar() {
                     )}
                 </div>
             </div>
-
-            <ConfirmationModal
-                isOpen={isRequestAdminOpen}
-                onClose={() => setIsRequestAdminOpen(false)}
-                onConfirm={handleRequestAdmin}
-                title="¿Solicitar Rol de Organizador?"
-                message="Podrás crear y gestionar tus propios grupos. Esta solicitud deberá ser aprobada por un Superadministrador."
-                confirmText="Solicitar"
-                type="info"
-            />
         </nav>
     );
 }
