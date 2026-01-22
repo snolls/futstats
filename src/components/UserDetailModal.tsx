@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, useEffect, useMemo } from 'react';
+import { useRef, useState, useEffect, useMemo, useCallback } from 'react';
 import { X, Calendar, Wallet, CheckCircle2, AlertTriangle, Plus, Minus, Loader2, History, RotateCcw, Pencil, Save, Users, Shield, ArrowRight } from 'lucide-react';
 import { usePlayerDebts } from '@/hooks/usePlayerDebts';
 import { AppUserCustomData, PLAYER_POSITIONS } from '@/types/user';
@@ -142,7 +142,7 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
     // Calculates the unified balance for ANY group (or global if null)
     // Returns: { total, manual, matches }
     // Total is positive if debt.
-    const calculateGroupBalance = (gid?: string | null) => {
+    const calculateGroupBalance = (gid?: string | null): { total: number; manual: number; matches: number } => {
         if (!gid) {
             // Global Case (Re-calculated based on VISIBLE groups only)
             // We cannot just use globalTotalDebt from the hook because that includes HIDDEN groups.
@@ -174,20 +174,10 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
     // If NOT present (Global), use the privacy-safe global calculation.
     const groupFinancialStatus = useMemo(() => {
         return calculateGroupBalance(selectedDebtContext || null);
-    }, [selectedDebtContext, visibleGroups, liveUser.debts, allPendingMatches]);
+    }, [selectedDebtContext, calculateGroupBalance]);
 
     // Use derived balance for display
-    const visibleTotalBalance = useMemo(() => {
-        if (selectedDebtContext) return groupFinancialStatus.total;
-
-        // Global mode: Sum only allowed groups
-        return allowedGroupIds.reduce((acc, groupId) => {
-            const { total } = calculateGroupBalance(groupId);
-            return acc + total;
-        }, 0);
-    }, [selectedDebtContext, groupFinancialStatus, allowedGroupIds, liveUser.debts, allPendingMatches]);
-
-    const displayedTotal = visibleTotalBalance;
+    const displayedTotal = groupFinancialStatus.total;
 
     // --- SMART AUTO-SELECTION LOGIC ---
     useEffect(() => {
