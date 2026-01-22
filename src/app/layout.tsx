@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import OnboardingModal from "@/components/OnboardingModal";
 import "./globals.css";
 import { AuthProvider } from "@/context/AuthContext";
+import { NotificationsProvider } from "@/context/NotificationsContext";
 import { Toaster } from "sonner";
 
 const geistSans = Geist({
@@ -38,9 +39,11 @@ export default function RootLayout({
         suppressHydrationWarning={true}
       >
         <AuthProvider>
-          <Toaster position="top-center" richColors theme="dark" />
-          <OnboardingModal />
-          {children}
+          <NotificationsProvider>
+            <Toaster position="top-center" richColors theme="dark" />
+            <OnboardingModal />
+            {children}
+          </NotificationsProvider>
         </AuthProvider>
       </body>
     </html>
