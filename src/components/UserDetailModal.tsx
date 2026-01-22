@@ -135,6 +135,9 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
         return manageableGroups.filter(mg => liveUser.associatedGroups?.includes(mg.id));
     }, [liveUser.associatedGroups, manageableGroups]);
 
+    // Derived allowed IDs for iteration
+    const allowedGroupIds = useMemo(() => visibleGroups.map(g => g.id), [visibleGroups]);
+
     // --- UNIFIED DEBT CALCULATION ---
     // Calculates the unified balance for ANY group (or global if null)
     // Returns: { total, manual, matches }
@@ -173,7 +176,18 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
         return calculateGroupBalance(selectedDebtContext || null);
     }, [selectedDebtContext, visibleGroups, liveUser.debts, allPendingMatches]);
 
-    const displayedTotal = groupFinancialStatus.total;
+    // Use derived balance for display
+    const visibleTotalBalance = useMemo(() => {
+        if (selectedDebtContext) return groupFinancialStatus.total;
+
+        // Global mode: Sum only allowed groups
+        return allowedGroupIds.reduce((acc, groupId) => {
+            const { total } = calculateGroupBalance(groupId);
+            return acc + total;
+        }, 0);
+    }, [selectedDebtContext, groupFinancialStatus, allowedGroupIds, liveUser.debts, allPendingMatches]);
+
+    const displayedTotal = visibleTotalBalance;
 
     // --- SMART AUTO-SELECTION LOGIC ---
     useEffect(() => {
