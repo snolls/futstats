@@ -1,20 +1,21 @@
 "use client";
 
+import Link from 'next/link';
+
 import { useState, useEffect, useRef } from 'react';
 import { Bell, Check, X, Loader2 } from 'lucide-react';
-import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
 import { useAuthContext } from '@/context/AuthContext';
 import { SocialRequest } from '@/types/request';
 import { RequestService } from '@/services/RequestService';
 import { toast } from 'sonner';
+import { useNotifications } from '@/context/NotificationsContext';
 
 export default function NotificationsDropdown() {
     const { user, userData } = useAuthContext();
-    const [requests, setRequests] = useState<SocialRequest[]>([]);
-    const [unreadCount, setUnreadCount] = useState(0);
+    // Use the context!
+    const { notifications, unreadCount, loading } = useNotifications();
     const [isOpen, setIsOpen] = useState(false);
-    const [loading, setLoading] = useState(false);
+    const [actionLoading, setActionLoading] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
 
     // Close on click outside
@@ -28,116 +29,35 @@ export default function NotificationsDropdown() {
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
-    // Listen for requests
-    useEffect(() => {
-        if (!user || !userData) return;
-
-        // Query Logic:
-        // 1. If Superadmin: See 'request_admin'
-        // 2. If Admin: See 'join_group' where auditors array-contains my UID.
-
-        let q;
-        if (userData.role === 'superadmin') {
-            // Fetch ALL admin requests OR join requests where I am auditor (if I am also group admin)
-            // Doing OR query in Firestore is hard. We might need two listeners or a broader query.
-            // Simpler: Superadmin sees ALL 'request_admin'.
-            // AND if they are group admins, they should see 'join_group' for their groups.
-            // But 'auditors' field handles that. Superadmin keyword is special.
-            q = query(
-                collection(db, "requests"),
-                where("auditors", "array-contains", "superadmin")
-            );
-            // Wait, we also want normal group requests if superadmin manages a group.
-            // We can't do "array-contains 'superadmin' OR array-contains 'myUid'".
-            // We will stick to role-based primary focus for MVP:
-            // Superadmin sees Admin Requests. 
-            // IMPROVEMENT: If I am superadmin AND a group admin, I missed group requests with above query.
-            // Solution: We'll make two queries if needed, or just prioritize role requests. 
-            // Let's LISTEN to 'auditors' array containing 'superadmin'.
-            // AND separately listen to 'auditors' containing my UID? 
-            // Let's implement generic 'auditors' logic. 
-            // If I am superadmin, I should query where auditors contains 'superadmin'.
-            // If I am any user, I query where auditors contains my UID.
-        } else {
-            q = query(
-                collection(db, "requests"),
-                where("auditors", "array-contains", user.uid)
-            );
-        }
-
-        // Logic refinement: Superadmin query
-        // If I use 'auditors' field on 'request_admin' as ['superadmin'], 
-        // and 'join_group' as ['uid1', 'uid2'].
-        // Superadmin needs to query: auditors contains 'superadmin' OR auditors contains 'myUid'.
-        // Firestore doesn't support logical OR on different array-contains values easily.
-        // We will implement TWO listeners for Superadmin.
-
-        const unsubs: (() => void)[] = [];
-
-        // Listener A: My UID (Group Admin requests)
-        const q1 = query(collection(db, "requests"), where("auditors", "array-contains", user.uid));
-        unsubs.push(onSnapshot(q1, (snap) => {
-            updateRequests('uid', snap.docs.map(d => ({ id: d.id, ...d.data() } as SocialRequest)));
-        }));
-
-        // Listener B: 'superadmin' (Role requests) - Only if I am superadmin
-        if (userData.role === 'superadmin') {
-            const q2 = query(collection(db, "requests"), where("auditors", "array-contains", "superadmin"));
-            unsubs.push(onSnapshot(q2, (snap) => {
-                updateRequests('sa', snap.docs.map(d => ({ id: d.id, ...d.data() } as SocialRequest)));
-            }));
-        }
-
-        // Helper to merge lists
-        const resultsMap = new Map<string, SocialRequest[]>();
-        const updateRequests = (key: string, list: SocialRequest[]) => {
-            resultsMap.set(key, list);
-            const merged = Array.from(resultsMap.values()).flat();
-            // Dedup by ID
-            const unique = Array.from(new Map(merged.map(item => [item.id, item])).values());
-            // Sort desc
-            unique.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-
-            setRequests(unique);
-            setUnreadCount(unique.length); // Assuming all in 'requests' collection are pending/unread
-        };
-
-        return () => unsubs.forEach(u => u());
-    }, [user, userData]);
-
     const handleAccept = async (req: SocialRequest) => {
-        if (!userData) return; // Should be impossible if we are here
-        // We need to pass the current user as 'AppUserCustomData', effectively 'userData' 
-        // but Typescript might complain about missing fields if 'userData' is partial.
-        // We cast.
+        if (!userData) return;
         try {
-            setLoading(true);
+            setActionLoading(true);
             await RequestService.acceptRequest(userData as any, req);
             toast.success("Solicitud aceptada");
+            // Context will auto-update via Firebase listener
             setIsOpen(false);
         } catch (e) {
             console.error(e);
             toast.error("Error al aceptar");
         } finally {
-            setLoading(false);
+            setActionLoading(false);
         }
     };
 
     const handleReject = async (req: SocialRequest) => {
         try {
-            setLoading(true);
+            setActionLoading(true);
             await RequestService.rejectRequest(req);
-            toast.success("Solicitud rechazada/eliminada");
+            toast.success("Solicitud rechazada");
+            // Context will auto-update
         } catch (e) {
             console.error(e);
             toast.error("Error al rechazar");
         } finally {
-            setLoading(false);
+            setActionLoading(false);
         }
     };
-
-    // Always show the component, even if empty.
-    // If empty, just don't show the red badge.
 
     return (
         <div className="relative" ref={dropdownRef}>
@@ -148,7 +68,9 @@ export default function NotificationsDropdown() {
             >
                 <Bell className="w-5 h-5" />
                 {unreadCount > 0 && (
-                    <span className="absolute top-1 right-1 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-slate-900 animate-pulse" />
+                    <span className="absolute -top-1 -right-1 flex items-center justify-center min-w-[1.25rem] h-5 px-1 bg-red-500 text-white text-[10px] font-bold rounded-full border-2 border-gray-900 animate-in zoom-in">
+                        {unreadCount > 9 ? '+9' : unreadCount}
+                    </span>
                 )}
             </button>
 
@@ -163,14 +85,16 @@ export default function NotificationsDropdown() {
                     </div>
 
                     <div className="max-h-[20rem] overflow-y-auto custom-scrollbar">
-                        {requests.length === 0 ? (
+                        {loading && notifications.length === 0 ? (
+                            <div className="flex justify-center p-4"><Loader2 className="w-5 h-5 animate-spin text-slate-500" /></div>
+                        ) : notifications.length === 0 ? (
                             <div className="flex flex-col items-center justify-center py-8 px-4 text-center">
                                 <Bell className="w-8 h-8 text-slate-800 mb-2" />
                                 <p className="text-slate-500 text-sm font-medium">No tienes notificaciones pendientes.</p>
                             </div>
                         ) : (
                             <div className="divide-y divide-slate-800/50">
-                                {requests.map(req => (
+                                {notifications.map(req => (
                                     <div key={req.id} className="p-4 hover:bg-slate-800/30 transition-colors">
                                         <div className="flex items-start gap-3">
                                             {req.userPhotoURL ? (
@@ -200,15 +124,15 @@ export default function NotificationsDropdown() {
                                         <div className="flex gap-2 mt-3 pl-12">
                                             <button
                                                 onClick={() => handleAccept(req)}
-                                                disabled={loading}
+                                                disabled={actionLoading}
                                                 className="flex-1 py-1.5 bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-500 border border-emerald-600/20 hover:border-emerald-600/40 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
                                             >
-                                                {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                                                {actionLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
                                                 Aceptar
                                             </button>
                                             <button
                                                 onClick={() => handleReject(req)}
-                                                disabled={loading}
+                                                disabled={actionLoading}
                                                 className="flex-1 py-1.5 bg-red-600/10 hover:bg-red-600/20 text-red-500 border border-red-600/20 hover:border-red-600/40 text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
                                             >
                                                 <X className="w-3 h-3" />
@@ -219,6 +143,12 @@ export default function NotificationsDropdown() {
                                 ))}
                             </div>
                         )}
+                    </div>
+
+                    <div className="p-2 border-t border-slate-800 bg-slate-900/50 backdrop-blur">
+                        <Link href="/dashboard" onClick={() => setIsOpen(false)} className="block w-full text-center text-xs text-slate-500 hover:text-white py-1 transition-colors">
+                            Ver todas en Gestión
+                        </Link>
                     </div>
                 </div>
             )}
