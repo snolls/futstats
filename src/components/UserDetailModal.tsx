@@ -81,7 +81,11 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
                 q = query(collection(db, "groups"), where("adminIds", "array-contains", currentUser.uid));
             }
             const snap = await getDocs(q);
-            setManageableGroups(snap.docs.map(d => ({ id: d.id, name: d.data().name })));
+            setManageableGroups(snap.docs.map(d => ({
+                id: d.id,
+                name: d.data().name,
+                adminIds: d.data().adminIds // Include for potential client-side checks
+            })));
         } catch (err) {
             console.error("Error fetching groups for detail modal", err);
         } finally {
@@ -122,17 +126,30 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
     }, [allPaidMatches, selectedDebtContext]);
 
 
+    // --- VISIBLE GROUPS (PRIVACY FILTER) ---
+    // Only show groups that are BOTH:
+    // 1. Associated with the target user (liveUser.associatedGroups)
+    // 2. Manageable by the current viewer (current user is admin or superadmin)
+    const visibleGroups = useMemo(() => {
+        if (!liveUser?.associatedGroups) return [];
+        return manageableGroups.filter(mg => liveUser.associatedGroups?.includes(mg.id));
+    }, [liveUser.associatedGroups, manageableGroups]);
+
     // --- UNIFIED DEBT CALCULATION ---
     // Calculates the unified balance for ANY group (or global if null)
     // Returns: { total, manual, matches }
     // Total is positive if debt.
     const calculateGroupBalance = (gid?: string | null) => {
         if (!gid) {
-            // Global Case
+            // Global Case (Re-calculated based on VISIBLE groups only)
+            // We cannot just use globalTotalDebt from the hook because that includes HIDDEN groups.
+            // We must sum the balances of all visibleGroups.
+            const visibleBalances = visibleGroups.map(g => calculateGroupBalance(g.id));
+
             return {
-                total: globalTotalDebt,
-                manual: globalManualDebt,
-                matches: globalMatchesDebt
+                total: visibleBalances.reduce((acc, b) => acc + b.total, 0),
+                manual: visibleBalances.reduce((acc, b) => acc + b.manual, 0),
+                matches: visibleBalances.reduce((acc, b) => acc + b.matches, 0)
             };
         }
 
@@ -150,7 +167,12 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
     };
 
     // Calculate Final Displayed Total for the Main Badge
-    const groupFinancialStatus = calculateGroupBalance(selectedDebtContext);
+    // If selectedDebtContext is present, show that group.
+    // If NOT present (Global), use the privacy-safe global calculation.
+    const groupFinancialStatus = useMemo(() => {
+        return calculateGroupBalance(selectedDebtContext || null);
+    }, [selectedDebtContext, visibleGroups, liveUser.debts, allPendingMatches]);
+
     const displayedTotal = groupFinancialStatus.total;
 
     // --- SMART AUTO-SELECTION LOGIC ---
@@ -312,15 +334,9 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
 
 
     // --- Dropdown Options Logic (Fix for Reactivity) ---
-    const dropdownOptions = useMemo(() => {
-        // Obtenemos los grupos vivos o fallback vacío
-        const targetGroups = liveUser?.associatedGroups || [];
-
-        // Filtramos 'manageableGroups' (que ya están filtrados por lo que el admin puede ver)
-        // para incluir SOLO los que el usuario tiene asociados ACTUALMENTE.
-        // Esto asegura que si desmarco un grupo abajo, desaparece de arriba.
-        return manageableGroups.filter(mg => targetGroups.includes(mg.id));
-    }, [liveUser?.associatedGroups, manageableGroups]);
+    // --- Dropdown Options Logic (Fix for Reactivity) ---
+    // Use visibleGroups directly for the dropdown to ensure consistency
+    const dropdownOptions = visibleGroups;
 
 
 
@@ -730,16 +746,13 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
                 <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar pr-2 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gray-700/50 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-gray-600">
 
                     {/* --- DESGLOSE DE DEUDAS (BETA) --- */}
+                    {/* --- DESGLOSE DE DEUDAS (BETA) --- */}
                     {/* BADGES DE ESTADO FINANCIERO POR GRUPO */}
-                    {(liveUser.associatedGroups || []).length > 0 && (
+                    {visibleGroups.length > 0 && (
                         <div className="flex flex-wrap gap-2 mb-6">
-                            {(liveUser.associatedGroups || []).map(groupId => {
-                                // Find group name in manageableGroups (loaded for admin)
-                                const group = manageableGroups.find(g => g.id === groupId);
-                                if (!group) return null; // Privacy/Loading check
-
+                            {visibleGroups.map(group => {
                                 // Unified Calc
-                                const { total } = calculateGroupBalance(groupId);
+                                const { total } = calculateGroupBalance(group.id);
 
                                 const isDebt = total > 0.01;
                                 const isCredit = total < -0.01;
@@ -748,12 +761,12 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
                                 if (isDebt) styleClass = "border-red-500/50 text-red-400 bg-red-500/10 shadow-[0_0_10px_rgba(239,68,68,0.1)]";
                                 if (isCredit) styleClass = "border-emerald-500/50 text-emerald-400 bg-emerald-500/10 shadow-[0_0_10px_rgba(16,185,129,0.1)]";
 
-                                const isSelected = selectedDebtContext === groupId;
+                                const isSelected = selectedDebtContext === group.id;
 
                                 return (
                                     <button
-                                        key={groupId}
-                                        onClick={() => setSelectedDebtContext(isSelected ? "" : groupId)}
+                                        key={group.id}
+                                        onClick={() => setSelectedDebtContext(isSelected ? "" : group.id)}
                                         className={`px-3 py-2 rounded-lg border ${styleClass} flex flex-col items-center justify-center min-w-[90px] transition-all duration-200 ${isSelected ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-slate-900' : 'hover:border-slate-600'}`}
                                     >
                                         <span className="text-[10px] uppercase font-bold tracking-wider opacity-80 truncate max-w-[120px]">{group.name}</span>
