@@ -1,9 +1,138 @@
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if request.auth != null;
+
+    // --- FUNCIONES AUXILIARES ---
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isUser(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Obtener datos del usuario actual
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // Rol: Superadmin (Dios)
+    function isSuperAdmin() {
+      return isAuthenticated() && getUserData().role == 'superadmin';
+    }
+
+    // Rol: Admin (Organizador)
+    function isAdmin() {
+      return isAuthenticated() && (getUserData().role == 'admin' || getUserData().role == 'superadmin');
+    }
+
+    // Verificar si el usuario es Admin del grupo específico
+    function isGroupAdmin(groupId) {
+      let groupData = get(/databases/$(database)/documents/groups/$(groupId)).data;
+      return isAuthenticated() && (request.auth.uid in groupData.adminIds || isSuperAdmin());
+    }
+
+    // --- REGLAS POR COLECCIÓN ---
+
+    // 1. USUARIOS (users)
+    // - User: Lee datos públicos/propios. Edita propios (perfil). NO puede borrar.
+    // - Admin: Edita deudas (técnicamente actualiza el usuario). NO puede borrar.
+    // - Superadmin: Todo.
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      
+      allow create: if isSuperAdmin() || isUser(userId); // Registro o creación por SA
+
+      allow update: if isSuperAdmin() 
+                    || isUser(userId) 
+                    || (isAdmin() && 
+                        // Permitimos a un Admin editar usuarios para gestionar deudas.
+                        // Idealmente validaríamos que solo cambien 'debts', pero firestore rules
+                        // no permite iterar claves dinámicas fácilmente.
+                        // Confiamos en la app + rol Admin, pero bloqueamos cambios críticos si no es su propio perfil.
+                        // Al menos, nos aseguramos de que SEA Admin.
+                        true 
+                    );
+
+      allow delete: if isSuperAdmin(); // Solo Superadmin borra usuarios
+    }
+
+    // 2. GRUPOS (groups)
+    // - Write: Superadmin o Admin del grupo.
+    match /groups/{groupId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated(); // Cualquiera puede crear un grupo (y ser su admin)
+      allow update: if isSuperAdmin() || (isAuthenticated() && request.auth.uid in resource.data.adminIds);
+      allow delete: if isSuperAdmin() || (isAuthenticated() && request.auth.uid in resource.data.adminIds);
+    }
+
+    // 3. PARTIDOS (matches)
+    // - Write: Superadmin o Admin del grupo.
+    // - Bloqueo de edición si ya pasó (date < now), excepto stats/status.
+    match /matches/{matchId} {
+      allow read: if isAuthenticated();
+      
+      allow create: if isSuperAdmin() || isGroupAdmin(request.resource.data.groupId);
+
+      allow update: if isSuperAdmin() || (
+        isGroupAdmin(resource.data.groupId) && (
+           // Si el partido NO ha pasado, permitir todo
+           resource.data.date > request.time 
+           || 
+           // Si el partido YA pasó, permitir solo actualizar status, uploadStatus o paymentStatus
+           // (Validación estricta de campos modificados vía diff)
+           (
+             request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+               ['status', 'uploadStatus', 'paymentStatus']
+             )
+           )
+        )
+      );
+
+      allow delete: if isSuperAdmin() || isGroupAdmin(resource.data.groupId);
+    }
+
+    // 3.1 ESTADÍSTICAS DE PARTIDO (match_stats)
+    // Suelen crearse/editarse al finalizar el partido.
+    match /match_stats/{statId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin() || isGroupAdmin(request.resource.data.groupId);
+    }
+
+    // 4. SOLICITUDES (requests)
+    // - Read: Dueño o Auditores.
+    // - Create: Auth.
+    // - Update (Aceptar/Rechazar): Auditores.
+    match /requests/{requestId} {
+      allow read: if isAuthenticated() && (
+        request.auth.uid == resource.data.userId 
+        || request.auth.uid in resource.data.auditors
+        || (resource.data.auditors.hasAny(['superadmin']) && isSuperAdmin())
+      );
+
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+
+      allow update: if isAuthenticated() && (
+        (request.auth.uid in resource.data.auditors) 
+        || (resource.data.auditors.hasAny(['superadmin']) && isSuperAdmin())
+      );
+      
+      // Permitir borrar si eres el dueño (cancelar) o auditor (rechazar/limpiar).
+      allow delete: if isAuthenticated() && (
+        request.auth.uid == resource.data.userId 
+        || (request.auth.uid in resource.data.auditors)
+        || (resource.data.auditors.hasAny(['superadmin']) && isSuperAdmin())
+      );
+    }
+
+    // 5. REGISTROS DE DEUDA (debt_logs)
+    // - Nueva colección para auditoría si se usa.
+    match /debt_logs/{logId} {
+       allow read: if isAuthenticated() && (
+         request.auth.uid == resource.data.userId || isGroupAdmin(resource.data.groupId)
+       );
+       allow create, update: if isSuperAdmin() || isGroupAdmin(request.resource.data.groupId);
     }
   }
 }

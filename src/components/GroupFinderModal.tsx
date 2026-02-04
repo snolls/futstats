@@ -3,20 +3,23 @@
 import { useState, useEffect } from 'react';
 import { useAuthContext } from '@/context/AuthContext';
 import { db } from '@/lib/firebase';
-import { collection, query, getDocs, where, addDoc, serverTimestamp } from 'firebase/firestore';
-import { Search, Users, Loader2, Check, Clock, Send } from 'lucide-react';
-import { X } from 'lucide-react';
+import { collection, query, getDocs, where } from 'firebase/firestore';
+import { Search, Users, Loader2, Check, Clock, Send, X, RefreshCcw, AlertCircle } from 'lucide-react';
+import { RequestService } from '@/services/RequestService';
 
 interface GroupFinderModalProps {
     isOpen: boolean;
     onClose: () => void;
 }
 
+type RequestStatus = 'pending' | 'rejected' | 'accepted';
+
 export default function GroupFinderModal({ isOpen, onClose }: GroupFinderModalProps) {
     const { user, userData } = useAuthContext();
     const [searchTerm, setSearchTerm] = useState('');
     const [groups, setGroups] = useState<any[]>([]);
-    const [requests, setRequests] = useState<string[]>([]); // Group IDs with pending requests
+    // Map of GroupID -> Status
+    const [myRequests, setMyRequests] = useState<Record<string, RequestStatus>>({});
     const [loading, setLoading] = useState(false);
     const [requestingGroupId, setRequestingGroupId] = useState<string | null>(null);
 
@@ -32,14 +35,32 @@ export default function GroupFinderModal({ isOpen, onClose }: GroupFinderModalPr
                 const fetchedGroups = groupsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
                 setGroups(fetchedGroups);
 
-                // Fetch my pending requests
+                // Fetch my requests (pending OR rejected)
+                // Firestore OR queries are limited. We'll fetch 'pending' and 'rejected' separately or filter client side if not too many.
+                // Better: Fetch all requests for this user?
+                // `requests` collection (not group_requests, per implementation plan update)
+                // Wait, previously code used `group_requests`. 
+                // IMPLEMENTATION PLAN SAID `requests` collection.
+                // `RequestService` uses `requests`. 
+                // I MUST use `requests`.
+
                 const requestsQ = query(
-                    collection(db, 'group_requests'),
+                    collection(db, 'requests'),
                     where('userId', '==', user.uid),
-                    where('status', '==', 'pending')
+                    where('type', '==', 'join_group')
                 );
+
                 const requestsSnap = await getDocs(requestsQ);
-                setRequests(requestsSnap.docs.map(d => d.data().groupId));
+                const reqMap: Record<string, RequestStatus> = {};
+
+                requestsSnap.docs.forEach(d => {
+                    const data = d.data();
+                    if (data.targetGroupId) {
+                        reqMap[data.targetGroupId] = data.status;
+                    }
+                });
+
+                setMyRequests(reqMap);
 
             } catch (error) {
                 console.error("Error fetching finder data:", error);
@@ -56,21 +77,18 @@ export default function GroupFinderModal({ isOpen, onClose }: GroupFinderModalPr
         setRequestingGroupId(group.id);
 
         try {
-            await addDoc(collection(db, 'group_requests'), {
-                userId: user.uid,
-                userName: user.displayName || 'Usuario',
-                groupId: group.id,
-                groupName: group.name,
-                status: 'pending',
-                createdAt: serverTimestamp()
-            });
+            // Use RequestService which handles creation and recycling (retry)
+            await RequestService.createJoinRequest(
+                { ...userData, id: user.uid },
+                { id: group.id, name: group.name, adminIds: group.adminIds || [] }
+            );
 
-            // Update local state to show 'Pending' immediately
-            setRequests(prev => [...prev, group.id]);
-            // alert(`Solicitud enviada a ${group.name}`);
-        } catch (error) {
+            // Update local state to 'pending'
+            setMyRequests(prev => ({ ...prev, [group.id]: 'pending' }));
+
+        } catch (error: any) {
             console.error("Error sending request:", error);
-            alert("Error al enviar solicitud.");
+            alert(error.message || "Error al enviar solicitud.");
         } finally {
             setRequestingGroupId(null);
         }
@@ -132,7 +150,7 @@ export default function GroupFinderModal({ isOpen, onClose }: GroupFinderModalPr
                     ) : (
                         filteredGroups.map(group => {
                             const isMember = userData?.associatedGroups?.includes(group.id) || group.members?.includes(user?.uid);
-                            const isPending = requests.includes(group.id);
+                            const reqStatus = myRequests[group.id]; // 'pending' | 'rejected' | undefined
                             const isProcessing = requestingGroupId === group.id;
 
                             return (
@@ -147,6 +165,7 @@ export default function GroupFinderModal({ isOpen, onClose }: GroupFinderModalPr
                                         </div>
                                     </div>
 
+                                    {/* Action Buttons */}
                                     {isMember ? (
                                         <button
                                             disabled
@@ -155,13 +174,22 @@ export default function GroupFinderModal({ isOpen, onClose }: GroupFinderModalPr
                                             <Check className="w-3 h-3" />
                                             Ya eres miembro
                                         </button>
-                                    ) : isPending ? (
+                                    ) : reqStatus === 'pending' ? (
                                         <button
                                             disabled
                                             className="px-3 py-1.5 bg-yellow-500/10 text-yellow-500 text-xs font-bold rounded-lg border border-yellow-500/20 flex items-center gap-1 cursor-not-allowed opacity-80"
                                         >
                                             <Clock className="w-3 h-3" />
-                                            Solicitud enviada
+                                            Pendiente
+                                        </button>
+                                    ) : reqStatus === 'rejected' ? (
+                                        <button
+                                            onClick={() => handleJoinRequest(group)}
+                                            disabled={isProcessing}
+                                            className="px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 text-xs font-bold rounded-lg border border-red-500/20 flex items-center gap-1 transition-colors"
+                                        >
+                                            {isProcessing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCcw className="w-3 h-3" />}
+                                            Rechazado (Reintentar)
                                         </button>
                                     ) : (
                                         <button
