@@ -956,17 +956,7 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
                                 Ajustes Manuales / Multas
                             </h4>
 
-                            {selectedDebtContext && (
-                                <button
-                                    onClick={handleUndo}
-                                    disabled={!selectedDebtContext || processingId === 'undo'}
-                                    className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white px-2 py-1 rounded border border-slate-700 transition-colors flex items-center gap-1"
-                                    title="Deshacer última transacción en este grupo"
-                                >
-                                    {processingId === 'undo' ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
-                                    Deshacer
-                                </button>
-                            )}
+
                         </div>
 
                         <div className="flex items-center justify-between">

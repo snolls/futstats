@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { collection, query, where, orderBy, limit, getDocs, collectionGroup } from "firebase/firestore";
+import { collection, query, where, orderBy, limit, getDocs, collectionGroup, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { PaymentLog } from "@/types/payment";
 import { Loader2, ArrowRight } from "lucide-react";
@@ -16,41 +16,41 @@ export default function PaymentHistory({ groupId, userId }: PaymentHistoryProps)
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const fetchLogs = async () => {
-            setLoading(true);
-            try {
-                let q;
-                if (userId) {
-                    // Specific User Logs
-                    q = query(
-                        collection(db, `users/${userId}/debt_logs`),
-                        where("groupId", "==", groupId),
-                        orderBy("timestamp", "desc"),
-                        limit(50)
-                    );
-                } else {
-                    // Group Wide Logs (Collection Group)
-                    // Requires index: groupId ASC, timestamp DESC
-                    q = query(
-                        collectionGroup(db, 'debt_logs'),
-                        where("groupId", "==", groupId),
-                        orderBy("timestamp", "desc"),
-                        limit(50)
-                    );
-                }
+        setLoading(true);
+        let q;
 
-                const snap = await getDocs(q);
-                const fetchedLogs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as PaymentLog));
-                setLogs(fetchedLogs);
-            } catch (error) {
-                console.error("Error fetching payment logs:", error);
-            } finally {
-                setLoading(false);
+        try {
+            if (userId) {
+                // Specific User Logs
+                q = query(
+                    collection(db, `users/${userId}/debt_logs`),
+                    where("groupId", "==", groupId),
+                    orderBy("timestamp", "desc"),
+                    limit(50)
+                );
+            } else {
+                // Group Wide Logs (Collection Group)
+                q = query(
+                    collectionGroup(db, 'debt_logs'),
+                    where("groupId", "==", groupId),
+                    orderBy("timestamp", "desc"),
+                    limit(50)
+                );
             }
-        };
 
-        if (groupId) {
-            fetchLogs();
+            const unsubscribe = onSnapshot(q, (snapshot) => {
+                const fetchedLogs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as PaymentLog));
+                setLogs(fetchedLogs);
+                setLoading(false);
+            }, (error) => {
+                console.error("Error listening to payment logs:", error);
+                setLoading(false);
+            });
+
+            return () => unsubscribe();
+        } catch (error) {
+            console.error("Error setting up logs listener:", error);
+            setLoading(false);
         }
     }, [groupId, userId]);
 

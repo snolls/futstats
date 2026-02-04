@@ -112,7 +112,8 @@ service cloud.firestore {
     match /group_requests/{requestId} {
       allow read: if isAuthenticated() && (
         request.auth.uid == resource.data.userId 
-        || (resource.data.groupId != null && isGroupAdmin(resource.data.groupId)) // Check admin of target group
+        || (resource.data.groupId != null && isGroupAdmin(resource.data.groupId)) 
+        || isSuperAdmin()
       );
 
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
