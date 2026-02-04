@@ -172,87 +172,85 @@ export default function Home() {
   // 2. Carga de Partidos
   // 2. Carga de Partidos: Se ejecuta cuando hay un usuario logueado
   // Se suscribe a cambios en tiempo real (onSnapshot) con FILTRADO DE SEGURIDAD
+  // 2. Carga de Partidos: Se ejecuta cuando hay un usuario logueado
+  // Se suscribe a cambios en tiempo real (onSnapshot) con FILTRADO DE SEGURIDAD
+  const myGroupIds = userData?.associatedGroups || [];
+  const myGroupIdsStr = JSON.stringify(myGroupIds.slice().sort()); // Stable dependency
+
   useEffect(() => {
     const fetchMatches = () => {
-      if (!user) return;
-
-      // Esperar a que userData esté cargado para aplicar filtros de rol
-      if (loading) return;
+      // Si estamos cargando auth o no hay usuario, no hacemos nada
+      if (loading || !user) return;
 
       setMatchesLoading(true);
+
       try {
         let q;
 
         // ESTRATEGIA DE FILTRADO
-        // 1. Superadmin: Ve todo.
+
+        // CASO 1: Superadmin (Ve todo)
         if (role === 'superadmin') {
           q = query(collection(db, 'matches'), orderBy('date', 'desc'), limit(20));
         }
-        // 2. Estándar: Solo ve partidos de sus grupos (associatedGroups)
-        else {
-          const myGroupIds = userData?.associatedGroups || [];
 
-          if (myGroupIds.length === 0) {
-            // Si no está en ningún grupo, no ve partidos.
+        // CASO 2: Usuario Normal / Admin (Solo ve sus grupos)
+        else {
+          const groupIds = JSON.parse(myGroupIdsStr);
+
+          if (groupIds.length === 0) {
             setMatches([]);
             setMatchesLoading(false);
             return;
           }
 
-          // Firestore limita 'in' queries a 10 elementos.
-          if (myGroupIds.length <= 10) {
-            // Opción Óptima: Filtro en Servidor
-            // Nota: Esto requiere un índice compuesto (groupId ASC, date DESC).
-            // Si falla por falta de índice, ver consola.
-            q = query(
-              collection(db, 'matches'),
-              where('groupId', 'in', myGroupIds),
-              orderBy('date', 'desc'),
-              limit(20)
-            );
-          } else {
-            // Opción Fallback (Más de 10 grupos): Traer más y filtrar en cliente
-            // No es ideal pero evita errores de Firestore.
-            // Traemos los últimos 50 partidos globales y filtramos.
-            q = query(collection(db, 'matches'), orderBy('date', 'desc'), limit(50));
-          }
+          // LIMITACIÓN FIRESTORE: 'in' soporta máx 10 valores.
+          // Solución temporal: Tomamos los primeros 10 grupos. 
+          // Si el usuario tiene más de 10 grupos, solo verá partidos de los primeros 10.
+          // TODO: Implementar paginación o múltiples queries si es necesario escalar.
+          const safeGroupIds = groupIds.slice(0, 10);
+
+          q = query(
+            collection(db, 'matches'),
+            where('groupId', 'in', safeGroupIds),
+            orderBy('date', 'desc'),
+            limit(20)
+          );
         }
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
-          let fetchedMatches = snapshot.docs.map(doc => ({
+          const fetchedMatches = snapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data()
           }));
-
-          // Filtrado Cliente Adicional (Safety Net & Fallback para >10 grupos)
-          if (role !== 'superadmin') {
-            const myGroupIds = userData?.associatedGroups || [];
-            // @ts-ignore
-            fetchedMatches = fetchedMatches.filter(m => myGroupIds.includes(m.groupId));
-          }
-
           setMatches(fetchedMatches);
           setMatchesLoading(false);
         }, (error) => {
-          console.error("Error fetching matches (Permission/Index):", error);
-          // Si falla (probablemente por índice), mostramos error discreto o vacío
+          console.error("Error fetching matches:", error);
           setMatchesLoading(false);
+
           if (error.code === 'failed-precondition') {
-            toast.error("Falta índice de base de datos. Avisa al admin.");
+            // Esto ocurre si falta el índice compuesto.
+            toast.error("Falta un índice en la base de datos", {
+              description: "Por favor, notifica al administrador para que lo cree en la consola de Firebase."
+            });
+          } else if (error.code === 'permission-denied') {
+            setMatches([]); // Simplemente no mostramos nada si no hay permiso
           }
         });
+
         return unsubscribe;
+
       } catch (error) {
-        console.error("Error setup fetching matches", error);
+        console.error("Error setting up match listener", error);
         setMatchesLoading(false);
       }
     };
 
-    if (user && !loading) {
-      const unsub = fetchMatches();
-      return () => { if (typeof unsub === 'function') unsub(); };
-    }
-  }, [user, loading, role, userData]);
+    const unsub = fetchMatches();
+    return () => { if (typeof unsub === 'function') unsub(); };
+
+  }, [user, loading, role, myGroupIdsStr]);
 
   // 3. Carga de Grupos Gestionados
   useEffect(() => {
