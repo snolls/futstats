@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { collection, query, where, orderBy, limit, getDocs } from "firebase/firestore";
+import { collection, query, where, orderBy, limit, getDocs, collectionGroup } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { PaymentLog } from "@/types/payment";
 import { Loader2, ArrowRight } from "lucide-react";
 
 interface PaymentHistoryProps {
     groupId: string;
-    userId: string;
+    userId?: string;
 }
 
 export default function PaymentHistory({ groupId, userId }: PaymentHistoryProps) {
@@ -17,16 +17,28 @@ export default function PaymentHistory({ groupId, userId }: PaymentHistoryProps)
 
     useEffect(() => {
         const fetchLogs = async () => {
-            if (!userId) return;
             setLoading(true);
             try {
-                // Fetch last 50 logs for this group from User Subcollection
-                const q = query(
-                    collection(db, `users/${userId}/debt_logs`),
-                    where("groupId", "==", groupId),
-                    orderBy("timestamp", "desc"),
-                    limit(50)
-                );
+                let q;
+                if (userId) {
+                    // Specific User Logs
+                    q = query(
+                        collection(db, `users/${userId}/debt_logs`),
+                        where("groupId", "==", groupId),
+                        orderBy("timestamp", "desc"),
+                        limit(50)
+                    );
+                } else {
+                    // Group Wide Logs (Collection Group)
+                    // Requires index: groupId ASC, timestamp DESC
+                    q = query(
+                        collectionGroup(db, 'debt_logs'),
+                        where("groupId", "==", groupId),
+                        orderBy("timestamp", "desc"),
+                        limit(50)
+                    );
+                }
+
                 const snap = await getDocs(q);
                 const fetchedLogs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as PaymentLog));
                 setLogs(fetchedLogs);
@@ -37,7 +49,7 @@ export default function PaymentHistory({ groupId, userId }: PaymentHistoryProps)
             }
         };
 
-        if (groupId && userId) {
+        if (groupId) {
             fetchLogs();
         }
     }, [groupId, userId]);
