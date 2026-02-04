@@ -1,10 +1,11 @@
-"use client";
+'use client';
 
 import { useEffect, useState } from "react";
 import { collection, query, where, orderBy, limit, getDocs, collectionGroup, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { PaymentLog } from "@/types/payment";
 import { Loader2, ArrowRight } from "lucide-react";
+import { useAuthContext } from "@/context/AuthContext";
 
 interface PaymentHistoryProps {
     groupId: string;
@@ -12,17 +13,21 @@ interface PaymentHistoryProps {
 }
 
 export default function PaymentHistory({ groupId, userId }: PaymentHistoryProps) {
+    const { user } = useAuthContext();
     const [logs, setLogs] = useState<PaymentLog[]>([]);
     const [loading, setLoading] = useState(true);
     const [limitCount, setLimitCount] = useState(5);
 
     useEffect(() => {
+        // If no user logic, can't query safely
+        if (!user) return;
+
         setLoading(true);
         let q;
 
         try {
             if (userId) {
-                // Specific User Logs
+                // Specific User Logs (Safe: Rule isUser(userId))
                 q = query(
                     collection(db, `users/${userId}/debt_logs`),
                     where("groupId", "==", groupId),
@@ -31,6 +36,10 @@ export default function PaymentHistory({ groupId, userId }: PaymentHistoryProps)
                 );
             } else {
                 // Group Wide Logs (Collection Group)
+                // CAUTION: This query will fail if the user is NOT an admin of the group.
+                // Security Rule: allow read if isGroupAdmin(groupId).
+                // Regular users cannot see "Group History".
+                // We should handle this gracefully.
                 q = query(
                     collectionGroup(db, 'debt_logs'),
                     where("groupId", "==", groupId),
@@ -45,6 +54,13 @@ export default function PaymentHistory({ groupId, userId }: PaymentHistoryProps)
                 setLoading(false);
             }, (error) => {
                 console.error("Error listening to payment logs:", error);
+
+                // If permission denied, it likely means we are a regular user trying to view group history.
+                // Instead of crashing or showing error state, let's show nothing or a friendly message.
+                // But for now, just stop loading.
+                if (error.code === 'permission-denied') {
+                    setLogs([]);
+                }
                 setLoading(false);
             });
 
@@ -53,7 +69,7 @@ export default function PaymentHistory({ groupId, userId }: PaymentHistoryProps)
             console.error("Error setting up logs listener:", error);
             setLoading(false);
         }
-    }, [groupId, userId, limitCount]);
+    }, [groupId, userId, limitCount, user]);
 
     const handleLoadMore = () => {
         setLimitCount(prev => prev + 5);
@@ -68,7 +84,7 @@ export default function PaymentHistory({ groupId, userId }: PaymentHistoryProps)
     }
 
     if (logs.length === 0) {
-        return <div className="text-gray-500 text-center p-4">No hay historial de pagos en este grupo.</div>;
+        return <div className="text-gray-500 text-center p-4">No hay historial de pagos disponible.</div>;
     }
 
     return (

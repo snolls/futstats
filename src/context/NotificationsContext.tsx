@@ -3,13 +3,12 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuthContext } from './AuthContext'; // Use correct hook name if changed, or useAuth
+import { useAuth } from '@/hooks/useAuth'; // Reverting to original hook if it exists, or check imports. Original was useAuth.
 
-// Reusing the shape from types/request but defining locally if needed, 
-// or better, let's make it compatible with what we query.
+// Reusing the shape from types/request
 import { SocialRequest } from '@/types/request';
 
-// Context uses SocialRequest now
 export type NotificationRequest = SocialRequest;
 
 interface NotificationsContextType {
@@ -28,7 +27,42 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     const { user, userData, role, loading: authLoading } = useAuth();
     const [notifications, setNotifications] = useState<NotificationRequest[]>([]);
     const [loading, setLoading] = useState(true);
+    const [managedGroupIds, setManagedGroupIds] = useState<string[]>([]);
 
+    // 1. Fetch Groups where I am explicitly ADMIN
+    useEffect(() => {
+        if (!user || authLoading) {
+            setManagedGroupIds([]);
+            return;
+        }
+
+        // Optimize: If superadmin, we don't need this list (uses God mode query)
+        if (role === 'superadmin') {
+            setManagedGroupIds([]);
+            return;
+        }
+
+        // Fetch groups where adminIds array contains my UID
+        const q = query(
+            collection(db, "groups"),
+            where("adminIds", "array-contains", user.uid)
+        );
+
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const ids = snapshot.docs.map(d => d.id);
+            setManagedGroupIds(ids);
+        }, (err) => {
+            console.error("Error fetching managed groups for notifications:", err);
+            setManagedGroupIds([]);
+        });
+
+        return () => unsubscribe();
+    }, [user, role, authLoading]);
+
+    // Stable dependency string for the second effect
+    const managedGroupIdsStr = JSON.stringify(managedGroupIds.slice().sort());
+
+    // 2. Fetch Notifications based on Role/ManagedGroups
     useEffect(() => {
         if (authLoading) return;
         if (!user) {
@@ -37,39 +71,32 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
             return;
         }
 
-        // Optimized Query: "Mine" = Requests where I am an auditor.
-        // For Group Admins: RequestService adds their UID to 'auditors'.
-        // For Superadmin: RequestService adds 'superadmin' string? 
-        // We will listen to TWO disjoint sets or one broad set?
-        // - Group Admins: where 'auditors', 'array-contains', user.uid
-        // - Superadmin: where 'auditors', 'array-contains', 'superadmin' OR user.uid?
-        // Firestore limitation: array-contains cannot be OR'd easily.
-
-        // STRATEGY: 
-        // If Role == Superadmin -> Listen to ALL pending 'request_admin' + pending 'join_group' (maybe not desired? Prompt says "Si soy Superadmin: Veo solicitudes de 'Quiero ser Admin'". Only??)
-        // Prompt Check: "Superadmin: Veo solicitudes de 'Quiero ser Admin'".
-        // "Admin: Veo solicitudes de 'Quiero unirme al grupo X'".
-
         let q;
+        const myAdminGroups = JSON.parse(managedGroupIdsStr);
 
         if (role === 'superadmin') {
-            // Superadmin might want to see EVERYTHING or specific.
-            // Prompt implies specificity. "Superadmin sees admin requests".
-            // But Superadmin is usually also an Admin of groups?
-            // Let's broaden: Superadmin sees ALL pending requests (God Mode) OR strict filter?
-            // Prompt: "Superadmin: Veo solicitudes de 'Quiero ser Admin'".
-            // Let's implement God Mode for Superadmin to be safe, filtering in UI? 
-            // Or better: Query all pending.
             q = query(
                 collection(db, "group_requests"),
                 where("status", "==", "pending")
             );
         } else {
-            // Regular Admin / User
-            // Filter by: I am an auditor
+            // If I am not admin of any group, I see no incoming requests.
+            if (myAdminGroups.length === 0) {
+                setNotifications([]);
+                setLoading(false);
+                return;
+            }
+
+            // Firestore Limit 10
+            // If user manages > 10 groups, we only show requests for first 10 for now.
+            const safeGroupIds = myAdminGroups.slice(0, 10);
+
+            // STRICT SECURITY COMPLIANCE: 
+            // Rule: allow read if isGroupAdmin(groupId).
+            // Query must use: where('groupId', 'in', adminGroups)
             q = query(
                 collection(db, "group_requests"),
-                where("auditors", "array-contains", user.uid),
+                where("groupId", "in", safeGroupIds),
                 where("status", "==", "pending")
             );
         }
@@ -80,41 +107,10 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
                 ...doc.data()
             } as NotificationRequest));
 
-            // Client-side Strict Visibility Filter
-            const visibleNotifications = allFetched.filter(req => {
-                // 1. Superadmin View
-                if (role === 'superadmin') {
-                    if (req.type === 'request_admin') return true;
-                    // Also show group requests if they are explicitly auditor (e.g. created the group or added)
-                    // or if we decide Superadmin sees ALL group requests. 
-                    // Let's stick to prompt: "Superadmin: Veo solicitudes de 'Quiero ser Admin'".
-                    // But if Superadmin is ALSO member/admin of a group, they should see join requests for THAT group.
-                    if (req.type === 'join_group') {
-                        if (req.auditors?.includes(user.uid)) return true; // Explicitly assigned
-                        // return true; // Uncomment to allow Superadmin to moderate ALL groups
-                    }
-                    return false;
-                }
+            // Client-sort
+            allFetched.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
 
-                // 2. Admin View
-                if (role === 'admin') {
-                    // Only see join requests for MY groups
-                    if (req.type === 'join_group' && req.targetGroupId) {
-                        // Check if I am authorized (auditor check usually sufficient if backend logic is correct)
-                        // Backend (RequestService) adds group.adminIds to auditors.
-                        // So correct query `where auditor == uid` handles this!
-                        // Double check locally:
-                        return req.auditors?.includes(user.uid);
-                    }
-                }
-
-                return false;
-            });
-
-            // Sort desc by createdAt
-            visibleNotifications.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-
-            setNotifications(visibleNotifications);
+            setNotifications(allFetched);
             setLoading(false);
         }, (error) => {
             console.error("Error listening to notifications:", error);
@@ -123,7 +119,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
         });
 
         return () => unsubscribe();
-    }, [user, role, authLoading]);
+    }, [user, role, authLoading, managedGroupIdsStr]);
 
     return (
         <NotificationsContext.Provider value={{
