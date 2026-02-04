@@ -14,6 +14,7 @@ import MatchCard from '@/components/MatchCard';
 import UserDirectory from '@/components/UserDirectory';
 import OnboardingModal from '@/components/OnboardingModal';
 import GroupFinderModal from '@/components/GroupFinderModal';
+import MatchDetailModal from '@/components/MatchDetailModal';
 import { Plus, Users, Settings, Shield, Contact, Search } from 'lucide-react';
 import { collection, query, orderBy, limit, onSnapshot, where, getDocs, getDoc, updateDoc, doc, documentId } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
@@ -72,15 +73,14 @@ export default function Home() {
   const router = useRouter();
 
   // --- SECCIÓN DE ESTADOS (STATE) ---
-  // Control de la pestaña activa en el dashboard (stats, matches, users, overview)
   const [activeTab, setActiveTab] = useState('stats');
 
-  // Estados para controlar la visibilidad de los Modales (ventanas emergentes)
-  // Estados para controlar la visibilidad de los Modales (ventanas emergentes)
+  // Estados para controlar la visibilidad de los Modales
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
   const [isMatchModalOpen, setIsMatchModalOpen] = useState(false);
   const [isEditGroupModalOpen, setIsEditGroupModalOpen] = useState(false);
   const [isGroupFinderOpen, setIsGroupFinderOpen] = useState(false);
+  const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
 
   // Estados de DATOS (Partidos y Grupos)
   const [matches, setMatches] = useState<any[]>([]);
@@ -142,7 +142,7 @@ export default function Home() {
 
   // --- EFECTOS (USEEFFECT) ---
 
-  // 1. Protección de Ruta: Si no hay usuario, redirigir al login
+  // 1. Protección de Ruta
   useEffect(() => {
     if (!loading && !user) {
       router.push('/login');
@@ -157,55 +157,104 @@ export default function Home() {
     const unsub = onSnapshot(doc(db, 'users', user.uid), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
-        // If onboarding is NOT completed, show modal
         if (data.onboardingCompleted === false || data.onboardingCompleted === undefined) {
           setShowOnboarding(true);
         } else {
           setShowOnboarding(false);
         }
       } else {
-        // User doc doesn't exist yet (e.g. fresh google login before trigger)
-        // We can assume we need onboarding, or wait for creation. 
-        // Usually trigger creates it, or we create it here if missing?
-        // For now, let's show onboarding if missing, assuming modal handles creation/update
         setShowOnboarding(true);
       }
     });
     return () => unsub();
   }, [user]);
 
+  // 2. Carga de Partidos
   // 2. Carga de Partidos: Se ejecuta cuando hay un usuario logueado
-  // Se suscribe a cambios en tiempo real (onSnapshot)
+  // Se suscribe a cambios en tiempo real (onSnapshot) con FILTRADO DE SEGURIDAD
   useEffect(() => {
     const fetchMatches = () => {
       if (!user) return;
+
+      // Esperar a que userData esté cargado para aplicar filtros de rol
+      if (loading) return;
+
       setMatchesLoading(true);
       try {
-        const q = query(collection(db, 'matches'), orderBy('date', 'desc'), limit(20));
+        let q;
+
+        // ESTRATEGIA DE FILTRADO
+        // 1. Superadmin: Ve todo.
+        if (role === 'superadmin') {
+          q = query(collection(db, 'matches'), orderBy('date', 'desc'), limit(20));
+        }
+        // 2. Estándar: Solo ve partidos de sus grupos (associatedGroups)
+        else {
+          const myGroupIds = userData?.associatedGroups || [];
+
+          if (myGroupIds.length === 0) {
+            // Si no está en ningún grupo, no ve partidos.
+            setMatches([]);
+            setMatchesLoading(false);
+            return;
+          }
+
+          // Firestore limita 'in' queries a 10 elementos.
+          if (myGroupIds.length <= 10) {
+            // Opción Óptima: Filtro en Servidor
+            // Nota: Esto requiere un índice compuesto (groupId ASC, date DESC).
+            // Si falla por falta de índice, ver consola.
+            q = query(
+              collection(db, 'matches'),
+              where('groupId', 'in', myGroupIds),
+              orderBy('date', 'desc'),
+              limit(20)
+            );
+          } else {
+            // Opción Fallback (Más de 10 grupos): Traer más y filtrar en cliente
+            // No es ideal pero evita errores de Firestore.
+            // Traemos los últimos 50 partidos globales y filtramos.
+            q = query(collection(db, 'matches'), orderBy('date', 'desc'), limit(50));
+          }
+        }
+
         const unsubscribe = onSnapshot(q, (snapshot) => {
-          const fetchedMatches = snapshot.docs.map(doc => ({
+          let fetchedMatches = snapshot.docs.map(doc => ({
             id: doc.id,
             ...doc.data()
           }));
+
+          // Filtrado Cliente Adicional (Safety Net & Fallback para >10 grupos)
+          if (role !== 'superadmin') {
+            const myGroupIds = userData?.associatedGroups || [];
+            // @ts-ignore
+            fetchedMatches = fetchedMatches.filter(m => myGroupIds.includes(m.groupId));
+          }
+
           setMatches(fetchedMatches);
           setMatchesLoading(false);
+        }, (error) => {
+          console.error("Error fetching matches (Permission/Index):", error);
+          // Si falla (probablemente por índice), mostramos error discreto o vacío
+          setMatchesLoading(false);
+          if (error.code === 'failed-precondition') {
+            toast.error("Falta índice de base de datos. Avisa al admin.");
+          }
         });
         return unsubscribe;
       } catch (error) {
-        console.error("Error fetching matches", error);
+        console.error("Error setup fetching matches", error);
         setMatchesLoading(false);
       }
     };
 
-    if (user) {
+    if (user && !loading) {
       const unsub = fetchMatches();
       return () => { if (typeof unsub === 'function') unsub(); };
     }
+  }, [user, loading, role, userData]);
 
-
-  }, [user]);
-
-  // 3. Carga de Grupos Gestionados: Solo para Admins/Superadmins en la pestaña 'overview'
+  // 3. Carga de Grupos Gestionados
   useEffect(() => {
     const fetchGroups = () => {
       if (!user || !role || activeTab !== 'overview') return;
@@ -244,7 +293,7 @@ export default function Home() {
     }
   }, [user, role, activeTab]);
 
-  // 4. Cargar Grupos para Ranking Contextual (Dropdown)
+  // 4. Cargar Grupos para Ranking Contextual
   useEffect(() => {
     const fetchRankingGroups = async () => {
       if (!user) return;
@@ -253,25 +302,17 @@ export default function Home() {
         let groupsToFetch: string[] = [];
 
         if (role === 'superadmin') {
-          // Superadmin ve todos los grupos
           const allGroupsSnap = await getDocs(query(collection(db, 'groups'), orderBy('name')));
           const allGroups = allGroupsSnap.docs.map(d => ({ id: d.id, name: d.data().name }));
           setAvailableRankingGroups(allGroups);
           return;
         }
 
-        // Usuarios normales: Basado en associatedGroups y adminIds
-        // Usamos associatedGroups del perfil si existe
         if (userData?.associatedGroups && userData.associatedGroups.length > 0) {
           groupsToFetch = [...userData.associatedGroups];
         }
 
-        // Si es admin, asegurar que sus grupos gestionados también estén (por redundancia)
-        // Aunque el fix de sync debería haberlo cubierto.
-
         if (groupsToFetch.length > 0) {
-          // Firestore 'in' query limit is 10. Chunk it.
-          const chunks = [];
           const fetchedGroups: { id: string, name: string }[] = [];
           for (let i = 0; i < groupsToFetch.length; i += 10) {
             const chunk = groupsToFetch.slice(i, i + 10);
@@ -300,12 +341,8 @@ export default function Home() {
   };
 
   const refreshGroups = () => {
-    // Snapshot listener handles refresh automatically, 
-    // but if we used getDocs we would call fetchGroups here.
     console.debug("Groups list refreshed via snapshot");
   };
-
-
 
   if (loading || !user) {
     return (
@@ -371,10 +408,9 @@ export default function Home() {
           )}
 
           <div className="w-full">
-            {/* Navegación por Pestañas (Componente hijo) */}
+            {/* Navegación por Pestañas */}
             <DashboardNav activeTab={activeTab} onTabChange={setActiveTab} />
           </div>
-
 
           {/* --- RENDERIZADO CONDICIONAL DE CONTENIDO --- */}
 
@@ -382,10 +418,7 @@ export default function Home() {
           {activeTab === 'stats' && (
             <div className="space-y-4">
               <div className="space-y-4">
-                {/* Context Selector and Actions */}
                 <div className="flex flex-col sm:flex-row justify-between items-end sm:items-center gap-4">
-
-                  {/* Action Buttons for non-admins usually, or general use */}
                   <button
                     onClick={() => setIsGroupFinderOpen(true)}
                     className="text-sm text-blue-400 hover:text-white flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-white/5 transition-colors border border-transparent hover:border-white/10"
@@ -416,7 +449,7 @@ export default function Home() {
             </div>
           )}
 
-          {/* 2. Vista de PARTIDOS (Próximos encuentros) */}
+          {/* 2. Vista de PARTIDOS */}
           {activeTab === 'matches' && (
             <div className="space-y-4">
               {matchesLoading ? (
@@ -430,12 +463,12 @@ export default function Home() {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {matches.map(match => (
+                  {matches.map((match) => (
                     <MatchCard
                       key={match.id}
                       match={match}
                       isAdmin={role === 'admin' || role === 'superadmin'}
-                      onViewDetails={(id) => toast.info(`Detalles del partido ${id} próximamente.`)}
+                      onViewDetails={(id) => setSelectedMatchId(id)}
                     />
                   ))}
                 </div>
@@ -443,12 +476,12 @@ export default function Home() {
             </div>
           )}
 
-          {/* 3. Vista de DIRECTORIO DE USUARIOS (Solo Admins) */}
+          {/* 3. Vista de DIRECTORIO DE USUARIOS */}
           {activeTab === 'users' && (
             <UserDirectory currentUser={{ ...user, role: role || 'user' }} />
           )}
 
-          {/* 4. Vista de GESTIÓN (Panel de Admin/Overview) */}
+          {/* 4. Vista de GESTIÓN */}
           {activeTab === 'overview' && (
             <div className="space-y-8">
               {/* Admin Actions */}
@@ -530,7 +563,7 @@ export default function Home() {
                             onClick={() => handleAdminRequest(reqUser.id, 'reject')}
                             className="p-1.5 bg-red-500/20 text-red-500 rounded hover:bg-red-500/40 transition-colors" title="Rechazar"
                           >
-                            <Settings className="w-4 h-4 rotate-45" /> {/* Use X icon if available or makeshift */}
+                            <Settings className="w-4 h-4 rotate-45" />
                           </button>
                         </div>
                       </div>
@@ -583,7 +616,6 @@ export default function Home() {
           )}
 
           {/* --- MODALES O VENTANAS EMERGENTES --- */}
-          {/* Se renderizan ocultos hasta que su estado 'isOpen' sea true */}
           <CreateGroupModal isOpen={isGroupModalOpen} onClose={() => setIsGroupModalOpen(false)} />
           <CreateMatchModal isOpen={isMatchModalOpen} onClose={() => setIsMatchModalOpen(false)} />
           <EditGroupModal
@@ -597,6 +629,14 @@ export default function Home() {
             onClose={() => setIsGroupFinderOpen(false)}
           />
 
+          {selectedMatchId && (
+            <MatchDetailModal
+              matchId={selectedMatchId}
+              isOpen={!!selectedMatchId}
+              onClose={() => setSelectedMatchId(null)}
+            />
+          )}
+
           <ConfirmationModal
             isOpen={confirmModal.isOpen}
             onClose={closeConfirm}
@@ -606,10 +646,6 @@ export default function Home() {
             type={confirmModal.type}
           />
 
-
-
-
-          {/* --- ONBOARDING OBLIGATORIO --- */}
           {showOnboarding && <OnboardingModal forceOpen={true} />}
         </div>
       </main>

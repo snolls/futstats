@@ -55,8 +55,11 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
     const [format, setFormat] = useState("7vs7");
     const [date, setDate] = useState("");
     const [price, setPrice] = useState("");
+    const [matchType, setMatchType] = useState<'open' | 'closed'>('open'); // New State
+
+    // Roster State
     const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
-    const [guests, setGuests] = useState<GuestUser[]>([]); // Deprecated/Legacy ad-hoc guests if needed, but we focus on User-Guests now
+    const [guests, setGuests] = useState<GuestUser[]>([]);
     const [guestNameInput, setGuestNameInput] = useState("");
     const [isCreatingGuest, setIsCreatingGuest] = useState(false);
     const [showGuestInput, setShowGuestInput] = useState(false);
@@ -201,11 +204,8 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
         setIsCreatingGuest(true);
         try {
             const name = guestNameInput.trim();
-            // 1. Create in Firestore via Utility
-            // Pass selectedGroupId to link this guest to the current group context
             const newGuestData = await createGuestUser(name, 0, selectedGroupId ? [selectedGroupId] : []);
 
-            // 2. Add to Local State
             const newGuestUser: UserData = {
                 id: newGuestData.id,
                 displayName: newGuestData.displayName || name,
@@ -217,20 +217,15 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
             };
 
             setAvailableUsers(prev => [newGuestUser, ...prev]);
-
-            // 3. Auto-Select
             setSelectedUserIds(prev => [...prev, newGuestUser.id]);
-
-            // 4. Reset & Feedback
             setGuestNameInput("");
-
 
         } catch (error) {
             console.error("Error creating quick guest:", error);
             setError("Error al crear al invitado.");
         } finally {
             setIsCreatingGuest(false);
-            setShowGuestInput(false); // Hide input after creation
+            setShowGuestInput(false);
         }
     };
 
@@ -241,7 +236,11 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
     const hasSelectedDebtors = selectedUserIds.some(id => usersWithDebt.has(id));
     const totalSelected = selectedUserIds.length + guests.length;
     const requiredPlayers = FORMAT_REQUIREMENTS[format] || 0;
-    const isPlayerCountValid = totalSelected === requiredPlayers;
+
+    // Validation: For 'closed' matches, strict count. For 'open', we allow starting empty or partial.
+    const isPlayerCountValid = matchType === 'closed'
+        ? totalSelected === requiredPlayers
+        : totalSelected <= requiredPlayers;
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -253,7 +252,7 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
         try {
             const startDateTime = new Date(date);
 
-            // 1. Create Match
+            // 1. Create Match Doc
             const matchRef = await addDoc(collection(db, "matches"), {
                 groupId: selectedGroupId,
                 format: format,
@@ -262,10 +261,17 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                 createdBy: user.uid,
                 status: "SCHEDULED",
                 createdAt: serverTimestamp(),
-                playerCount: totalSelected,
+                // New Fields
+                type: matchType,
+                maxPlayers: requiredPlayers, // Calculated from format
+                price: Number(price),
+                players: selectedUserIds, // Initial squad
+                waitlist: [],
+                isLocked: false,
+                paymentStatus: {}
             });
 
-            // 2. Create Match Stats
+            // 2. Create Match Stats (Initial Roster)
             const batch = writeBatch(db);
             let autoPaidCount = 0;
 
@@ -273,54 +279,34 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
             selectedUserIds.forEach(userId => {
                 const statsRef = doc(collection(db, "match_stats"));
 
-                // Lógica de Cobro Automático (Smart Pay)
                 const userObj = availableUsers.find(u => u.id === userId);
-                const currentDebt = userObj?.debt ?? 0; // Si es negativo, es SALDO A FAVOR
+                const currentDebt = userObj?.debt ?? 0;
                 const priceNum = Number(price);
-
-                // Si tiene suficiente crédito (ej: debt es -10 y el precio es 5. -10 <= -5 es TRUE)
                 const canPayWithCredit = currentDebt <= -priceNum;
 
-                if (canPayWithCredit) {
-                    // 1. Marcar partido como PAGADO
-                    batch.set(statsRef, {
-                        matchId: matchRef.id,
-                        userId: userId,
-                        paymentStatus: "PAID", // Auto-pagado
-                        goals: 0,
-                        assists: 0,
-                        team: "PENDING",
-                        createdAt: serverTimestamp(),
-                    });
+                const paymentStatus = canPayWithCredit && priceNum > 0 ? "PAID" : "PENDING";
 
-                    // 2. Descontar del saldo (Incrementar deuda negativa acerca a cero)
-                    // Ej: Deuda -10. Increment(5) -> -5.
+                batch.set(statsRef, {
+                    matchId: matchRef.id,
+                    userId: userId,
+                    paymentStatus: paymentStatus,
+                    goals: 0,
+                    assists: 0,
+                    team: "PENDING",
+                    createdAt: serverTimestamp(),
+                });
+
+                if (canPayWithCredit && priceNum > 0) {
                     const userRef = doc(db, "users", userId);
                     batch.update(userRef, {
                         debt: increment(priceNum),
                         manualDebt: increment(priceNum)
                     });
-
                     autoPaidCount++;
-                } else {
-                    // Comportamiento normal (Pendiente)
-                    batch.set(statsRef, {
-                        matchId: matchRef.id,
-                        userId: userId,
-                        paymentStatus: "PENDING",
-                        goals: 0,
-                        assists: 0,
-                        team: "PENDING",
-                        createdAt: serverTimestamp(),
-                    });
                 }
             });
 
-            if (autoPaidCount > 0) {
-
-            }
-
-            // Guests (Legacy ad-hoc support, usually empty now)
+            // Guests logic
             guests.forEach(guest => {
                 const statsRef = doc(collection(db, "match_stats"));
                 batch.set(statsRef, {
@@ -338,6 +324,7 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
 
             await batch.commit();
 
+            // Reset
             setDate("");
             setPrice("");
             setSelectedUserIds([]);
@@ -403,6 +390,24 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                                 )}
                             </div>
 
+                            {/* Type Select (NEW) */}
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-slate-300 flex items-center gap-2">
+                                    <Shield className="w-4 h-4 text-purple-400" />
+                                    Modalidad
+                                </label>
+                                <select
+                                    value={matchType}
+                                    onChange={(e) => setMatchType(e.target.value as 'open' | 'closed')}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all outline-none"
+                                >
+                                    <option value="open">Abierto (Inscripción Libre)</option>
+                                    <option value="closed">Cerrado (Solo Convocatoria)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <label className="text-sm font-medium text-slate-300 flex items-center gap-2">
                                     <Trophy className="w-4 h-4 text-yellow-500" />
@@ -418,9 +423,6 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                                     ))}
                                 </select>
                             </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <label className="text-sm font-medium text-slate-300">Fecha y Hora</label>
                                 <input
@@ -431,22 +433,22 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                                     required
                                 />
                             </div>
+                        </div>
 
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium text-slate-300">Precio por Persona</label>
-                                <div className="relative">
-                                    <Euro className="absolute left-3 top-2.5 w-5 h-5 text-slate-500" />
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        step="0.5"
-                                        value={price}
-                                        onChange={(e) => setPrice(e.target.value)}
-                                        className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-10 pr-4 py-2.5 text-white focus:ring-2 focus:ring-green-500/20 focus:border-green-500 transition-all outline-none"
-                                        placeholder="0.00"
-                                        required
-                                    />
-                                </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-slate-300">Precio por Persona</label>
+                            <div className="relative">
+                                <Euro className="absolute left-3 top-2.5 w-5 h-5 text-slate-500" />
+                                <input
+                                    type="number"
+                                    min="0"
+                                    step="0.5"
+                                    value={price}
+                                    onChange={(e) => setPrice(e.target.value)}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-10 pr-4 py-2.5 text-white focus:ring-2 focus:ring-green-500/20 focus:border-green-500 transition-all outline-none"
+                                    placeholder="0.00"
+                                    required
+                                />
                             </div>
                         </div>
 
@@ -454,9 +456,9 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                             <div className="flex items-center justify-between">
                                 <label className="text-sm font-medium text-slate-300 flex items-center gap-2">
                                     <Users className="w-4 h-4" />
-                                    Convocatoria
+                                    {matchType === 'open' ? 'Pre-convocatoria (Opcional)' : 'Convocatoria'}
                                 </label>
-                                <span className={`text-xs font-bold px-2 py-1 rounded ${isPlayerCountValid ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                                <span className={`text-xs font-bold px-2 py-1 rounded ${isPlayerCountValid ? 'bg-green-500/20 text-green-400' : 'bg-slate-700 text-slate-400'}`}>
                                     {totalSelected} / {requiredPlayers} Jugadores
                                 </span>
                             </div>
@@ -521,7 +523,6 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                                 </div>
                             ) : (
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-60 overflow-y-auto p-1">
-                                    {/* Guests List */}
                                     {guests.map(guest => (
                                         <div
                                             key={guest.id}
@@ -550,7 +551,6 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                                         </div>
                                     ))}
 
-                                    {/* Registered Users List */}
                                     {availableUsers.map(user => {
                                         const isSelected = selectedUserIds.includes(user.id);
                                         const hasDebt = usersWithDebt.has(user.id);
@@ -610,13 +610,10 @@ export default function CreateMatchModal({ isOpen, onClose }: CreateMatchModalPr
                             type="submit"
                             disabled={isLoading || !isPlayerCountValid || !selectedGroupId}
                             className={`
-                px-6 py-2 text-sm font-bold text-white rounded-lg shadow-lg transition-all flex items-center gap-2
-                ${hasSelectedDebtors
-                                    ? 'bg-orange-500 hover:bg-orange-600 shadow-orange-500/20'
-                                    : 'bg-green-600 hover:bg-green-500 shadow-green-500/20'
-                                }
-                ${(isLoading || !isPlayerCountValid || !selectedGroupId) ? 'opacity-50 cursor-not-allowed' : ''}
-              `}
+                                px-6 py-2 text-sm font-bold text-white rounded-lg shadow-lg transition-all flex items-center gap-2
+                                ${hasSelectedDebtors ? 'bg-orange-500 hover:bg-orange-600 shadow-orange-500/20' : 'bg-green-600 hover:bg-green-500 shadow-green-500/20'}
+                                ${(isLoading || !isPlayerCountValid || !selectedGroupId) ? 'opacity-50 cursor-not-allowed' : ''}
+                            `}
                         >
                             {isLoading && <Loader2 className="w-4 h-4 animate-spin" />}
                             {!isPlayerCountValid

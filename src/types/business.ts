@@ -33,4 +33,23 @@ export interface Match {
     location?: string;
     status: 'SCHEDULED' | 'COMPLETED' | 'CANCELLED';
     createdBy: string;
+    // New fields for Match Management
+    format?: string;
+    type: 'open' | 'closed';
+    maxPlayers: number;
+    price: number;
+    paymentStatus?: Record<string, 'PAID' | 'PENDING' | undefined>; // Map<userId, status>
+    players: string[]; // Array of UserIDs (Squad)
+    waitlist: string[]; // Array of UserIDs (Waitlist)
+    isLocked: boolean;
+
+    // Post-Match Stats
+    stats?: {
+        homeScore: number;
+        awayScore: number;
+        mvpId?: string;
+        chronicle?: string;
+        goals?: Record<string, number>;
+        assists?: Record<string, number>;
+    };
 }
