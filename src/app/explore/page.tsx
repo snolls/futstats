@@ -56,7 +56,7 @@ export default function ExplorePage() {
                 // 2. Check if Pending Request
                 // We need to fetch MY requests to see if I have pending ones.
                 const myReqsQ = query(
-                    collection(db, "requests"),
+                    collection(db, "group_requests"),
                     where("userId", "==", user.uid),
                     where("type", "==", "join_group"),
                     where("status", "==", "pending")

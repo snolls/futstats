@@ -61,14 +61,14 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
             // Let's implement God Mode for Superadmin to be safe, filtering in UI? 
             // Or better: Query all pending.
             q = query(
-                collection(db, "requests"),
+                collection(db, "group_requests"),
                 where("status", "==", "pending")
             );
         } else {
             // Regular Admin / User
             // Filter by: I am an auditor
             q = query(
-                collection(db, "requests"),
+                collection(db, "group_requests"),
                 where("auditors", "array-contains", user.uid),
                 where("status", "==", "pending")
             );

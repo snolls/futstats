@@ -23,7 +23,7 @@ export const RequestService = {
     async createJoinRequest(user: AppUserCustomData & { id: string }, group: { id: string, name: string, adminIds: string[] }) {
         // 1. Check if request already exists
         const q = query(
-            collection(db, "requests"),
+            collection(db, "group_requests"),
             where("userId", "==", user.id),
             where("targetGroupId", "==", group.id),
             where("type", "==", "join_group")
@@ -40,7 +40,7 @@ export const RequestService = {
 
             if (data.status === 'rejected') {
                 // Recycle: Set status to pending and update timestamp
-                await updateDoc(doc(db, "requests", existingReq.id), {
+                await updateDoc(doc(db, "group_requests", existingReq.id), {
                     status: 'pending',
                     createdAt: serverTimestamp() as any
                 });
@@ -61,7 +61,7 @@ export const RequestService = {
             auditors: group.adminIds, // Admins of this group can see/approve this
             createdAt: serverTimestamp() as any
         };
-        await addDoc(collection(db, "requests"), reqData);
+        await addDoc(collection(db, "group_requests"), reqData);
     },
 
     /**
@@ -70,7 +70,7 @@ export const RequestService = {
     async createAdminRoleRequest(user: AppUserCustomData & { id: string }) {
         // 1. Check exists
         const q = query(
-            collection(db, "requests"),
+            collection(db, "group_requests"),
             where("userId", "==", user.id),
             where("type", "==", "request_admin")
         );
@@ -85,7 +85,7 @@ export const RequestService = {
             }
 
             if (data.status === 'rejected') {
-                await updateDoc(doc(db, "requests", existingReq.id), {
+                await updateDoc(doc(db, "group_requests", existingReq.id), {
                     status: 'pending',
                     createdAt: serverTimestamp() as any
                 });
@@ -103,7 +103,7 @@ export const RequestService = {
             auditors: ['superadmin'], // Special keyword or query logic for superadmins
             createdAt: serverTimestamp() as any
         };
-        await addDoc(collection(db, "requests"), reqData);
+        await addDoc(collection(db, "group_requests"), reqData);
     },
 
     /**
@@ -113,7 +113,7 @@ export const RequestService = {
     async acceptRequest(adminUser: AppUserCustomData, request: SocialRequest) {
         if (!request.id) throw new Error("Invalid Request ID");
         const batch = writeBatch(db);
-        const reqRef = doc(db, "requests", request.id);
+        const reqRef = doc(db, "group_requests", request.id);
 
         if (request.type === 'join_group') {
             if (!request.targetGroupId) throw new Error("No target group ID");
@@ -152,7 +152,7 @@ export const RequestService = {
     async rejectRequest(request: SocialRequest) {
         if (!request.id) return;
         // Soft delete so it can be recycled
-        await updateDoc(doc(db, "requests", request.id), {
+        await updateDoc(doc(db, "group_requests", request.id), {
             status: 'rejected'
         });
     }

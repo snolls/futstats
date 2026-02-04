@@ -321,7 +321,7 @@ export default function EditGroupModal({ isOpen, onClose, groupData, onUpdate }:
                         // Prompt: "el sistema debe crear una solicitud automática".
 
                         // Let's create a generic request.
-                        await addDoc(collection(db, "requests"), {
+                        await addDoc(collection(db, "group_requests"), {
                             type: 'admin_escalation', // Custom type
                             status: 'pending',
                             requesterId: user?.uid, // Who asked
@@ -377,80 +377,12 @@ export default function EditGroupModal({ isOpen, onClose, groupData, onUpdate }:
 
         setIsLoading(true);
         try {
-            const batch = writeBatch(db);
-            const groupId = groupData.id;
-
-            // 1. Fetch Fresh Group Data
-            const groupRef = doc(db, "groups", groupId);
-            const groupSnap = await getDoc(groupRef);
-
-            if (!groupSnap.exists()) {
-                onUpdate();
-                onClose();
-                return;
-            }
-
-            const freshData = groupSnap.data();
-            const memberIds = freshData?.members || [];
-
-            // 2. Remove from Users' associatedGroups
-            memberIds.forEach((memberId: string) => {
-                const userRef = doc(db, "users", memberId);
-                batch.update(userRef, {
-                    associatedGroups: arrayRemove(groupId)
-                });
-            });
-
-            // 3. Delete Group Requests
-            const requestsQ = query(collection(db, "group_requests"), where("groupId", "==", groupId));
-            const requestsSnap = await getDocs(requestsQ);
-            requestsSnap.forEach(reqDoc => {
-                batch.delete(reqDoc.ref);
-            });
-
-            // 4. Delete Matches and Stats
-            const matchesQ = query(collection(db, "matches"), where("groupId", "==", groupId));
-            const matchesSnap = await getDocs(matchesQ);
-
-            // Collect match IDs to delete their stats
-            const matchIds: string[] = [];
-            matchesSnap.forEach(matchDoc => {
-                matchIds.push(matchDoc.id);
-                batch.delete(matchDoc.ref);
-            });
-
-            // Delete associated stats (in chunks if needed, but for now assuming batch limit isn't hit or doing it simply)
-            // Note: firestore strict limit is 500 ops per batch. If many matches/stats, this might fail.
-            // For robustness in this prompt context, we'll try to include them. 
-            // If we have MANY matches, we should process differently. 
-            // We will fetch stats for these matches.
-
-            if (matchIds.length > 0) {
-                // Iterate matches to find stats? Or "matchId" in stats?
-                // Stats usually have `matchId`.
-                // We can't do `where('matchId', 'in', matchIds)` if matchIds > 10 or 30.
-                // We will query stats by iterating matchIds (safe but slow-ish if many matches).
-                // Better: query `match_stats` where `groupId` == `groupId` IF that field exists. 
-                // If not, we rely on matchIds. Let's assume fetching all stats for the matches.
-
-                // Strategy: Fetch all stats for these matches.
-                for (const mId of matchIds) {
-                    const statsQ2 = query(collection(db, "match_stats"), where("matchId", "==", mId));
-                    const statsSnap2 = await getDocs(statsQ2);
-                    statsSnap2.forEach(sDoc => {
-                        batch.delete(sDoc.ref);
-                    });
-                }
-            }
-
-            // 5. Delete Group Document
-            batch.delete(groupRef);
-
-            await batch.commit();
+            const { ConsistencyUtils } = await import("@/utils/consistency"); // Lazy load
+            await ConsistencyUtils.deleteGroupSafe(groupData.id);
 
             onUpdate();
             onClose();
-            toast.success("Grupo eliminado correctamente.");
+            toast.success("Grupo eliminado y datos limpiados correctamente.");
         } catch (err) {
             console.error("Error eliminando grupo:", err);
             toast.error("Error al eliminar el grupo. Inténtalo de nuevo.");

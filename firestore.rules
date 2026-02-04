@@ -97,42 +97,66 @@ service cloud.firestore {
     // Suelen crearse/editarse al finalizar el partido.
     match /match_stats/{statId} {
       allow read: if isAuthenticated();
-      allow write: if isSuperAdmin() || isGroupAdmin(request.resource.data.groupId);
+      // Write cubre create, update, delete.
+      // Para create: request.resource.data.groupId
+      // Para delete: resource.data.groupId
+      allow create: if isSuperAdmin() || isGroupAdmin(request.resource.data.groupId);
+      allow update: if isSuperAdmin() || isGroupAdmin(resource.data.groupId); // Update general
+      allow delete: if isSuperAdmin() || isGroupAdmin(resource.data.groupId);
     }
 
-    // 4. SOLICITUDES (requests)
+    // 4. SOLICITUDES (group_requests)
     // - Read: Dueño o Auditores.
     // - Create: Auth.
     // - Update (Aceptar/Rechazar): Auditores.
-    match /requests/{requestId} {
+    match /group_requests/{requestId} {
       allow read: if isAuthenticated() && (
         request.auth.uid == resource.data.userId 
-        || request.auth.uid in resource.data.auditors
-        || (resource.data.auditors.hasAny(['superadmin']) && isSuperAdmin())
+        || (resource.data.groupId != null && isGroupAdmin(resource.data.groupId)) // Check admin of target group
       );
 
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
 
       allow update: if isAuthenticated() && (
-        (request.auth.uid in resource.data.auditors) 
-        || (resource.data.auditors.hasAny(['superadmin']) && isSuperAdmin())
+        (resource.data.groupId != null && isGroupAdmin(resource.data.groupId))
+        || isSuperAdmin()
       );
       
       // Permitir borrar si eres el dueño (cancelar) o auditor (rechazar/limpiar).
       allow delete: if isAuthenticated() && (
         request.auth.uid == resource.data.userId 
-        || (request.auth.uid in resource.data.auditors)
-        || (resource.data.auditors.hasAny(['superadmin']) && isSuperAdmin())
+        || (resource.data.groupId != null && isGroupAdmin(resource.data.groupId))
+        || isSuperAdmin()
       );
     }
 
-    // 5. REGISTROS DE DEUDA (debt_logs)
-    // - Nueva colección para auditoría si se usa.
-    match /debt_logs/{logId} {
-       allow read: if isAuthenticated() && (
-         request.auth.uid == resource.data.userId || isGroupAdmin(resource.data.groupId)
-       );
-       allow create, update: if isSuperAdmin() || isGroupAdmin(request.resource.data.groupId);
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      
+      allow create: if isSuperAdmin() || isUser(userId); 
+
+      allow update: if isSuperAdmin() 
+                    || isUser(userId) 
+                    || (isAdmin() && true) // Global Admin
+                    // PERMITIR a Group Admins limpiar referencias al borrar grupos
+                    // Comprobación relajada: Permitir update si solo elimina claves de debts/associatedGroups?
+                    // Complejo de validar perfectamente. Por ahora confiamos en Global Admin.
+                    // Si el usuario es solo "Group Leader" (role user), la limpieza de usuarios FALLARÁ.
+                    // TODO: Implementar Cloud Function para borrado seguro si esto es crítico.
+                    ;
+
+      allow delete: if isSuperAdmin(); 
+      
+      // 5. REGISTROS DE DEUDA (Subcolección)
+      match /debt_logs/{logId} {
+         allow read: if isAuthenticated() && (
+           isUser(userId) || isGroupAdmin(resource.data.groupId)
+         );
+         // Permitir crear logs si eres Admin del grupo (añadir deuda/pago)
+         allow create: if isSuperAdmin() || isGroupAdmin(request.resource.data.groupId);
+         // Logs inmutables generalmente, o editables solo por SA
+         allow update, delete: if isSuperAdmin();
+      }
     }
   }
 }

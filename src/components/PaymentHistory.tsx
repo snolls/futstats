@@ -8,19 +8,21 @@ import { Loader2, ArrowRight } from "lucide-react";
 
 interface PaymentHistoryProps {
     groupId: string;
+    userId: string;
 }
 
-export default function PaymentHistory({ groupId }: PaymentHistoryProps) {
+export default function PaymentHistory({ groupId, userId }: PaymentHistoryProps) {
     const [logs, setLogs] = useState<PaymentLog[]>([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         const fetchLogs = async () => {
+            if (!userId) return;
             setLoading(true);
             try {
-                // Fetch last 50 logs for this group
+                // Fetch last 50 logs for this group from User Subcollection
                 const q = query(
-                    collection(db, "payment_logs"),
+                    collection(db, `users/${userId}/debt_logs`),
                     where("groupId", "==", groupId),
                     orderBy("timestamp", "desc"),
                     limit(50)
@@ -35,10 +37,10 @@ export default function PaymentHistory({ groupId }: PaymentHistoryProps) {
             }
         };
 
-        if (groupId) {
+        if (groupId && userId) {
             fetchLogs();
         }
-    }, [groupId]);
+    }, [groupId, userId]);
 
     if (loading) {
         return <div className="flex justify-center p-4"><Loader2 className="animate-spin text-blue-500" /></div>;

@@ -45,7 +45,7 @@ export default function GroupFinderModal({ isOpen, onClose }: GroupFinderModalPr
                 // I MUST use `requests`.
 
                 const requestsQ = query(
-                    collection(db, 'requests'),
+                    collection(db, 'group_requests'),
                     where('userId', '==', user.uid),
                     where('type', '==', 'join_group')
                 );

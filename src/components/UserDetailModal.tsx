@@ -10,6 +10,7 @@ import { useAuthContext } from '@/context/AuthContext';
 import { toast } from 'sonner';
 import { UserService } from '@/services/UserService';
 import { UserMinus, Ban } from 'lucide-react';
+import PaymentHistory from './PaymentHistory';
 
 interface UserDetailModalProps {
     isOpen: boolean;
@@ -110,7 +111,8 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
         loading,
         toggleMatchPayment,
         updateManualDebt,
-        processSmartPayment
+        processSmartPayment,
+        undoLastTransaction
     } = usePlayerDebts(liveUser?.id, undefined);
 
     // --- FILTERED LISTS FOR EXTENDED UI ---
@@ -340,6 +342,21 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
         }
     };
 
+    const handleUndo = async () => {
+        if (!selectedDebtContext) return;
+        setProcessingId('undo');
+        try {
+            await undoLastTransaction(selectedDebtContext);
+            toast.success("Última transacción deshecha.");
+            onUpdate();
+        } catch (error) {
+            console.error("Error unding transaction:", error);
+            toast.error("Error al deshacer: " + (error as any).message);
+        } finally {
+            setProcessingId(null);
+        }
+    };
+
 
 
     // --- Dropdown Options Logic (Fix for Reactivity) ---
@@ -443,9 +460,11 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
                 setProcessingId('global-ban');
                 try {
                     if (!currentUser) return;
-                    // @ts-ignore
-                    await UserService.deleteUserFull({ ...currentUserData, uid: currentUser.uid, role: currentUserData?.role || 'user' }, user.id);
-                    toast.success("Usuario eliminado globalmente.");
+
+                    const { ConsistencyUtils } = await import("@/utils/consistency"); // Lazy load
+                    await ConsistencyUtils.deleteUserSafe(user.id);
+
+                    toast.success("Usuario y sus datos relacionados eliminados correctamente.");
                     onClose();
                     onUpdate();
                 } catch (error) {
@@ -937,6 +956,21 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
                                 Ajustes Manuales / Multas
                             </h4>
 
+                            {selectedDebtContext && (
+                                <button
+                                    onClick={handleUndo}
+                                    disabled={!selectedDebtContext || processingId === 'undo'}
+                                    className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white px-2 py-1 rounded border border-slate-700 transition-colors flex items-center gap-1"
+                                    title="Deshacer última transacción en este grupo"
+                                >
+                                    {processingId === 'undo' ? <Loader2 className="w-3 h-3 animate-spin" /> : <RotateCcw className="w-3 h-3" />}
+                                    Deshacer
+                                </button>
+                            )}
+                        </div>
+
+                        <div className="flex items-center justify-between">
+
                             {selectedDebtContext && (() => {
                                 // Usamos el cálculo directo para asegurar sincronización con el dropdown
                                 const { total } = calculateGroupBalance(selectedDebtContext);
@@ -1027,6 +1061,17 @@ export default function UserDetailModal({ isOpen, onClose, user, groupId, onUpda
                             </div>
                         </div>
                     </div>
+
+                    {/* PAYMENT HISTORY LOGS */}
+                    {selectedDebtContext && (
+                        <div className="space-y-3 pt-4 border-t border-slate-800">
+                            <h4 className="text-sm font-bold text-slate-300 flex items-center gap-2">
+                                <History className="w-4 h-4 text-purple-400" />
+                                Historial de Movimientos
+                            </h4>
+                            <PaymentHistory groupId={selectedDebtContext} userId={user.id} />
+                        </div>
+                    )}
 
                     {/* Sección de Grupos (Solo visible para Admin/Superadmin gestionando invitados/usuarios) */}
                     {manageableGroups.length > 0 && (
